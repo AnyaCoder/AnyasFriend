@@ -1,0 +1,35 @@
+[project]
+name = "AnyasFriend"
+version = "0.1.0"
+description = "intelligent conversational AI framework"
+authors = [
+    {name = "AnyaCoder", email = "a2983352531@outlook.com"},
+]
+dependencies = [
+    "openai==1.55.0",
+    "ormsgpack==1.5.0",
+    "pydantic==2.9.2",
+    "loguru>=0.6.0",
+    "numpy<=1.26.4",
+    "websockets==14.1",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "BSD 3-Clause"}
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.pdm]
+distribution = true
+
+[tool.pdm.dev-dependencies]
+dev = [
+    "isort>=5.12.0",
+    "black>=23.3.0",
+]
+
+[tool.pdm.scripts]
+lint = { shell = "black . && isort ." }
+lint-check = { shell = "black --check . && isort --check ." }
