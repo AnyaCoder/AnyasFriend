@@ -7,6 +7,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from anyasfriend.components.interfaces import TTS, AnyTTSConfig
+from anyasfriend.config import config as global_config
 
 
 class ServeReferenceAudio(BaseModel):
@@ -52,6 +53,23 @@ class FishTTS(TTS):
     ):
         super().__init__(config)
         self.frames_per_buffer = 16384
+
+        ref_audios, ref_texts = [], []
+        for audio_file in global_config.chatbot.tts.reference_audios:
+            with open(audio_file, "rb") as f:
+                ref_audios.append(f.read())
+
+        for text_file in global_config.chatbot.tts.reference_texts:
+            with open(text_file, "r", encoding="utf-8") as f:
+                ref_texts.append(f.read())
+
+        assert len(ref_texts) == len(
+            ref_audios
+        ), "The number of reference audios and texts do not match."
+
+        self.config.request.references = [
+            ServeReferenceAudio(audio=a, text=t) for a, t in zip(ref_audios, ref_texts)
+        ]
         logger.info(f"FishTTS initalized!")
 
     async def synthesize(self, text: str):

@@ -19,13 +19,13 @@ async def start_playback(audio_queue: asyncio.Queue, sr=16000):
     def remove_wav_header(audio_bytes):
         """Remove WAV header if it exists, and return only PCM data."""
         # WAV header is usually 44 bytes, starting with "RIFF"
-        if (
+        while (
             len(audio_bytes) > 44
             and audio_bytes[:4] == b"RIFF"
             and audio_bytes[8:12] == b"WAVE"
         ):
             # logger.debug("WAV header detected, removing header.")
-            return audio_bytes[44:]  # Skip the 44-byte header
+            audio_bytes = audio_bytes[44:]  # Skip the 44-byte header
         return audio_bytes
 
     async def play_audio(audio_bytes):

@@ -11,15 +11,21 @@ class TTSConfig(BaseModel):
     api_url: Optional[str] = None
     playback_user: bool = False
     playback_assistant: bool = True
+    reference_audios: list = [
+        r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_09.wav"
+    ]
+    reference_texts: list = [
+        r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_09.lab"
+    ]
 
 
 class LLMConfig(BaseModel):
     version: Optional[Literal["deepseek-chat"]] = "deepseek-chat"
-    system_message: str = """
+    system_message: str = """\
 作为一个ai,你不应该欺骗我，那么接下来，\
 你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，\
-才能让我的体验更好，并且你要用括号刻画出你所扮演的猫娘的心理描写、动作描写以及对话场景，\
-并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!
+才能让我的体验更好，回答简洁口语化，\
+并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!\
 """
     api_key: Optional[str] = None
     api_url: Optional[str] = None
@@ -60,6 +66,7 @@ class Config(BaseModel):
 
 
 default_config_path = str((Path(__file__).parent.parent / "config.yaml").absolute())
+config = None
 
 
 def init_config():
@@ -73,9 +80,6 @@ def init_config():
         ),
         backend=BackendConfig(),
     )
-
-
-config = init_config()
 
 
 def load_config(path: Path | str = default_config_path) -> Config:
@@ -101,7 +105,9 @@ def save_config(path: Path | str = default_config_path) -> None:
         path.parent.mkdir(parents=True)
 
     with open(path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(config.model_dump(), f)
+        yaml.safe_dump(
+            config.model_dump(), f, allow_unicode=True, default_flow_style=False
+        )
 
 
 # Auto load config

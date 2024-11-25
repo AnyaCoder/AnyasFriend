@@ -1,6 +1,6 @@
 # anyasfriend/chatbot.py
 import asyncio
-from typing import Any, AsyncGenerator, Tuple
+from typing import Any, AsyncGenerator
 
 from loguru import logger
 from websockets.asyncio.client import ClientConnection
@@ -50,12 +50,17 @@ class Chatbot:
                 user_input: str = await self.text_input_queue.get()
 
                 maybe_command = user_input.strip()
-                if maybe_command == "/clear":
-                    self.memory.clear()
-                    continue
-                elif maybe_command == "/history":
-                    print("=" * 10 + " Chat History " + "=" * 10)
-                    print(self.memory.retrieve_all())
+                if maybe_command.startswith("/"):
+                    match maybe_command:
+                        case "/clear":
+                            self.memory.clear()
+                        case "/history":
+                            print("=" * 10 + " Chat History " + "=" * 10)
+                            print(self.memory.retrieve_all())
+                        case "/help":
+                            print("/clear /history /help")
+                        case _:
+                            print("Unknown Command")
                     continue
 
                 if self.current_task:
