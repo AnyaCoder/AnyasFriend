@@ -19,7 +19,7 @@ class AnyTTSConfig(BaseModel):
 
 class TTS(ABC):
     client = httpx.AsyncClient(
-        timeout=None,
+        # timeout=None, 5s
         limits=httpx.Limits(
             max_connections=None,
             max_keepalive_connections=None,

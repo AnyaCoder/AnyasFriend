@@ -81,10 +81,12 @@ class FishTTS(TTS):
 
 
 async def tts_main():
+    from anyasfriend.config import config
+
     config_dict = dict(
         base=dict(
-            api_key="68f0fb2e73f44fa3a495687ff5b305e3",
-            api_url="https://api.fish.audio/v1/tts",
+            api_key=config.chatbot.tts.api_key,
+            api_url=config.chatbot.tts.api_url,
         ),
         # request=dict(
         #     format="mp3",

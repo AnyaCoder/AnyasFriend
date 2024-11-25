@@ -92,12 +92,13 @@ class DeepSeekLLM(LLM):
 async def llm_main():
     memory = InMemory()
     memory.store("system", "You are a helpful assistant.")
+    from anyasfriend.config import config
 
     llm = DeepSeekLLM(
         config=DeepSeekLLMConfig(
             base=LLMBaseConfig(
-                api_key="sk-36373a962ec846babff6cbb851692d22",
-                api_url="https://api.deepseek.com/chat/completions",
+                api_key=config.chatbot.llm.api_key,
+                api_url=config.chatbot.llm.api_url,
             ),
             request=DeepSeekLLMRequestConfig(stream=True),
         ),
