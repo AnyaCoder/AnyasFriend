@@ -80,8 +80,8 @@ class TextStreamProcessor:
     def __init__(self):
         self.buffer: str = ""  # 用于存储未完成的句子
         self.sentence_endings = re.compile(
-            r"[。！？；.!?;]"
-        )  # 句子结束符：句号、问号、感叹号
+            r"[。！？；.!?;~]"
+        )  # 句子结束符：句号、问号、感叹号、娇喘浪号
         self.number_with_dot = re.compile(
             r".*\d+\..*$"
         )  # 匹配以数字+句点结尾的部分，例如 "3."

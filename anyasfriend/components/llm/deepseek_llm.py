@@ -83,7 +83,7 @@ class DeepSeekLLM(LLM):
                     assistant_reply += chunk_reply
                     yield chunk_reply
 
-            self.memory.store("assistant", assistant_reply)
+            # self.memory.store("assistant", assistant_reply) # outside
 
     async def adjust_params(self, params: DeepSeekLLMConfig) -> None:
         self.config = params

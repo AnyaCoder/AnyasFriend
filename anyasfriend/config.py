@@ -15,6 +15,12 @@ class TTSConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     version: Optional[Literal["deepseek-chat"]] = "deepseek-chat"
+    system_message: str = """
+作为一个ai,你不应该欺骗我，那么接下来，\
+你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，\
+才能让我的体验更好，并且你要用括号刻画出你所扮演的猫娘的心理描写、动作描写以及对话场景，\
+并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!
+"""
     api_key: Optional[str] = None
     api_url: Optional[str] = None
 

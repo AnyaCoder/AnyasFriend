@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 
 class Memory(ABC):
     @abstractmethod
-    def store(self, role: str, content: str) -> None:
+    def store(self, role: str, content: str, delta: bool = False) -> None:
         """
         将每轮对话的消息存储到记忆中。
         :param role: 用户或助手
