@@ -4,7 +4,6 @@ import asyncio
 import websockets
 from loguru import logger
 
-from anyasfriend.components.media import start_playback
 from anyasfriend.config import Config, config
 from anyasfriend.factory import ChatbotFactory
 
@@ -28,7 +27,6 @@ async def main(config: Config):
         text_websocket,
         voice_websocket,
         chatbot.chat(),
-        start_playback(chatbot.voice_output_queue, 44100),  # ta的语音回答
     )
 
 

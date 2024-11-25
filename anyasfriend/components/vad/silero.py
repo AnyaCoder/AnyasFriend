@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from silero_vad import load_silero_vad
 
 from anyasfriend.components.interfaces import VAD
-from anyasfriend.components.media import start_playback
 
 
 class SileroVADConfig(BaseModel):
@@ -154,7 +153,7 @@ async def vad_main():
         await start_server  # run forever until the task is cancelled
 
     await start_websocket_server()
-    await start_playback(audio_queue, sr=vad.config.target_sr)
+    # await start_playback(audio_queue, sr=vad.config.target_sr)
 
 
 if __name__ == "__main__":

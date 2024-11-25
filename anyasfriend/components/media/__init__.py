@@ -1,3 +1,3 @@
-from .playback import start_playback
+from .playback import Playback, PlaybackEvent
 
-__all__ = ["start_playback"]
+__all__ = ["Playback", "PlaybackEvent"]
