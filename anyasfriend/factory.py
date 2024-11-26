@@ -52,7 +52,7 @@ class ChatbotFactory:
         # 根据配置选择 ASR 版本和 API 配置
         asr = None
         if config.asr.version == "funasr":
-            asr = FunASR(config=FunASRConfig())
+            asr = FunASR(config=FunASRConfig(disable_update=config.asr.disable_update))
         else:
             raise ValueError(f"Unsupported ASR version: {config.asr.version}")
 

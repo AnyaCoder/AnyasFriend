@@ -1,5 +1,6 @@
 # anyasfriend/chatbot.py
 import asyncio
+import sys
 from typing import Any, AsyncGenerator
 
 from loguru import logger
@@ -7,6 +8,9 @@ from websockets.asyncio.client import ClientConnection
 
 from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Memory
 from anyasfriend.components.media import Playback, PlaybackEvent
+
+logger.remove()
+logger.add(sys.stdout, level="INFO")
 
 
 class Chatbot:

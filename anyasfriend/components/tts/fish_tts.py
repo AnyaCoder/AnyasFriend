@@ -1,5 +1,6 @@
 # anyasfriend/components/tts/fish_tts.py
 
+import asyncio
 from typing import Literal
 
 import ormsgpack

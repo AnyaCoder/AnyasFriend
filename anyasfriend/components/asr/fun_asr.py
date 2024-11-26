@@ -11,6 +11,7 @@ import numpy as np
 import torch
 import torchaudio
 from funasr import AutoModel
+from funasr.download.download_model_from_hub import name_maps_ms
 from loguru import logger
 from pydantic import BaseModel
 
@@ -40,6 +41,7 @@ class FunASRConfig(BaseModel):
     punc_model: str = "ct-punc"
     log_level: str = "ERROR"
     disable_pbar: bool = True
+    disable_update: bool = False
 
     sample_rate: int = 16000
     language: Literal["zh", "en", "jp", "auto"] = "auto"
@@ -47,6 +49,16 @@ class FunASRConfig(BaseModel):
 
 class FunASR(ASR):
     def __init__(self, config: FunASRConfig):
+        if config.disable_update:
+            config.model = os.path.join(
+                os.getenv("MODELSCOPE_CACHE"), "hub", config.model
+            )
+            config.punc_model = os.path.join(
+                os.getenv("MODELSCOPE_CACHE"), "hub", name_maps_ms[config.punc_model]
+            )
+            logger.warning(
+                f"Disabled auto update, use local: \nstt:{config.model}\npunc:{config.punc_model}"
+            )
         self.config = config
         self.model = self.load_asr_model()
         logger.info("FunASR initalized")

@@ -35,6 +35,7 @@ class ASRConfig(BaseModel):
     version: Optional[Literal["funasr"]] = "funasr"
     api_key: Optional[str] = None
     api_url: Optional[str] = None
+    disable_update: bool = False  # 是否关闭自动更新（FunASR离线使用必须关闭）
 
 
 class VADConfig(BaseModel):

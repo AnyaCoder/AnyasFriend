@@ -25,7 +25,7 @@ class LLM(ABC):
         self.config = config
         self.stream_processor = TextStreamProcessor()
         self.client = httpx.AsyncClient(
-            # timeout=None, 5s
+            timeout=httpx.Timeout(30.0, connect=10.0),
             limits=httpx.Limits(
                 max_connections=None,
                 max_keepalive_connections=None,
