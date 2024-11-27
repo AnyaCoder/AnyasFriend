@@ -3,8 +3,12 @@
 from anyasfriend.chatbot import Chatbot
 from anyasfriend.components.asr import FunASR, FunASRConfig
 from anyasfriend.components.interfaces import LLMBaseConfig, TTSBaseConfig
-from anyasfriend.components.llm import (DeepSeekLLM, DeepSeekLLMConfig,
-                                        OllamaLLM, OllamaLLMConfig)
+from anyasfriend.components.llm import (
+    DeepSeekLLM,
+    DeepSeekLLMConfig,
+    OllamaLLM,
+    OllamaLLMConfig,
+)
 from anyasfriend.components.memory import InMemory
 from anyasfriend.components.tts import FishTTS, FishTTSConfig
 from anyasfriend.components.vad import SileroVAD, SileroVADConfig

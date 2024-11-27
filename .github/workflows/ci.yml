@@ -31,5 +31,5 @@ jobs:
             libportaudiocpp0 \
             ffmpeg
           pdm sync
-      - name: Lint with black and isort
+      - name: Lint with black
         run: pdm run lint-check

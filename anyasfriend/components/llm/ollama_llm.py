@@ -5,8 +5,7 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel
 
-from anyasfriend.components.interfaces import (LLM, AnyLLMConfig,
-                                               LLMBaseConfig, Memory)
+from anyasfriend.components.interfaces import LLM, AnyLLMConfig, LLMBaseConfig, Memory
 
 
 class OllamaLLMRequestConfig(BaseModel):
