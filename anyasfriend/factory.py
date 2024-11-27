@@ -3,7 +3,8 @@
 from anyasfriend.chatbot import Chatbot
 from anyasfriend.components.asr import FunASR, FunASRConfig
 from anyasfriend.components.interfaces import LLMBaseConfig, TTSBaseConfig
-from anyasfriend.components.llm import DeepSeekLLM, DeepSeekLLMConfig
+from anyasfriend.components.llm import (DeepSeekLLM, DeepSeekLLMConfig,
+                                        OllamaLLM, OllamaLLMConfig)
 from anyasfriend.components.memory import InMemory
 from anyasfriend.components.tts import FishTTS, FishTTSConfig
 from anyasfriend.components.vad import SileroVAD, SileroVADConfig
@@ -22,13 +23,27 @@ class ChatbotFactory:
 
         # 根据配置选择 LLM 版本和 API 配置
         llm = None
-        if config.llm.version == "deepseek-chat":
+        if config.llm.provider == "ollama":
+            llm = OllamaLLM(
+                memory=memory,
+                config=OllamaLLMConfig(
+                    base=LLMBaseConfig(
+                        api_key=config.llm.api_key,
+                        base_url=config.llm.base_url,
+                    ),
+                    request=dict(
+                        model=config.llm.version,
+                        stream=True,
+                    ),
+                ),
+            )
+        elif config.llm.version == "deepseek-chat":
             llm = DeepSeekLLM(
                 memory=memory,
                 config=DeepSeekLLMConfig(
                     base=LLMBaseConfig(
                         api_key=config.llm.api_key,
-                        api_url=config.llm.api_url,
+                        base_url=config.llm.base_url,
                     )
                 ),
             )
@@ -42,7 +57,7 @@ class ChatbotFactory:
                 config=FishTTSConfig(
                     base=TTSBaseConfig(
                         api_key=config.tts.api_key,
-                        api_url=config.tts.api_url,
+                        api_url=config.tts.base_url,
                     )
                 )
             )

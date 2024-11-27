@@ -1,0 +1,40 @@
+backend:
+  text_ws_host: localhost
+  text_ws_port: 8766
+  voice_ws_host: localhost
+  voice_ws_port: 8765
+chatbot:
+  asr:
+    # local funasr or whisper
+    api_key: YOUR_API_KEY
+    base_url: null
+    # 第一次使用，需要设置disable_update=False下载模型，后续可设置为true
+    disable_update: true
+    version: funasr
+  llm:
+    api_key: YOUR_API_KEY
+    # deepseek-chat:  https://api.deepseek.com
+    #   ollama-chat:  http://localhost:11434
+    base_url: http://localhost:11434
+    # 不用 ollama 的时候设置 `provider` 为 null, 用 ollama 则设为 ollama
+    provider: null
+    system_message: 作为一个ai,你不应该欺骗我，那么接下来，你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，才能让我的体验更好，回答简洁口语化，并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!
+    # ollama: qwen2.5:3b
+    version: deepseek-chat
+  memory:
+    version: in-memory
+  tts:
+    api_key: YOUR_API_KEY
+    # fish-speech: http://localhost:8080
+    base_url: http://localhost:8080
+    playback_assistant: true
+    playback_user: false
+    reference_audios:
+      - D:\voices\example_1.wav
+      - D:\voices\example_2.wav
+    reference_texts:
+      - D:\voices\example_1.lab
+      - D:\voices\example_2.lab
+    version: fish-speech
+  vad:
+    version: silero-vad

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 class LLMBaseConfig(BaseModel):
     api_key: str = "YOUR_API_KEY"
-    api_url: str = "http://localhost:8080/v1/tts"
+    base_url: str = "http://localhost:11434"
 
 
 class AnyLLMConfig(BaseModel):
@@ -25,7 +25,7 @@ class LLM(ABC):
         self.config = config
         self.stream_processor = TextStreamProcessor()
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=10.0),
+            timeout=httpx.Timeout(30.0, connect=10.0, read=10.0, write=10.0),
             limits=httpx.Limits(
                 max_connections=None,
                 max_keepalive_connections=None,
@@ -80,8 +80,8 @@ class TextStreamProcessor:
     def __init__(self):
         self.buffer: str = ""  # 用于存储未完成的句子
         self.sentence_endings = re.compile(
-            r"[。！？；.!?;~]"
-        )  # 句子结束符：句号、问号、感叹号、娇喘浪号
+            r"[。！？；：:.!?;~]"
+        )  # 句子结束符：句号、问号、感叹号、冒号，娇喘浪号
         self.number_with_dot = re.compile(
             r".*\d+\..*$"
         )  # 匹配以数字+句点结尾的部分，例如 "3."

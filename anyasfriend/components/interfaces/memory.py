@@ -4,6 +4,10 @@ from abc import ABC, abstractmethod
 
 
 class Memory(ABC):
+
+    def __init__(self):
+        self.messages: list[dict[str, str]] = []
+
     @abstractmethod
     def store(self, role: str, content: str, delta: bool = False) -> None:
         """

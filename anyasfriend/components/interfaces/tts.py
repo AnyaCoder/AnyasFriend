@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class TTSBaseConfig(BaseModel):
     api_key: str = "YOUR_API_KEY"
-    api_url: str = "http://localhost:8080/v1/tts"
+    base_url: str = "http://localhost:8080"
     playback_user: bool = False
     playback_assistant: bool = True
 
@@ -19,7 +19,7 @@ class AnyTTSConfig(BaseModel):
 
 class TTS(ABC):
     client = httpx.AsyncClient(
-        timeout=httpx.Timeout(30.0, connect=10.0),
+        timeout=httpx.Timeout(30.0, connect=10.0, read=10.0, write=10.0),
         limits=httpx.Limits(
             max_connections=None,
             max_keepalive_connections=None,

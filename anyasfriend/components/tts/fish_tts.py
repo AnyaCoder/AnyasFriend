@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Literal
+from urllib.parse import urljoin
 
 import ormsgpack
 from loguru import logger
@@ -75,10 +76,10 @@ class FishTTS(TTS):
 
     async def synthesize(self, text: str):
         tts_request = FishTTSRequest(**self.config.request.model_dump(), text=text)
-        # logger.info(f"tts: {text}")
+        tts_url = urljoin(self.config.base.base_url, "v1/tts")
         async with self.client.stream(
             method="POST",
-            url=self.config.base.api_url,
+            url=tts_url,
             data=ormsgpack.packb(
                 tts_request,
                 option=ormsgpack.OPT_SERIALIZE_PYDANTIC,
@@ -89,9 +90,10 @@ class FishTTS(TTS):
             },
         ) as response:
             if response.status_code != 200:
-                raise ValueError(
+                logger.error(
                     f"Failed to get response, status code: {response.status_code}"
                 )
+                raise
             async for chunk in response.aiter_bytes(chunk_size=self.frames_per_buffer):
                 yield chunk
 
@@ -105,7 +107,7 @@ async def tts_main():
     config_dict = dict(
         base=dict(
             api_key=config.chatbot.tts.api_key,
-            api_url=config.chatbot.tts.api_url,
+            api_url=config.chatbot.tts.base_url,
         ),
         # request=dict(
         #     format="mp3",

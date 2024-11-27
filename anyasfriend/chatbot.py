@@ -95,9 +95,9 @@ class Chatbot:
     async def recreate_task(self, user_input: str, is_voice: bool = False):
         """处理普通输入, 取消当前任务并启动新的任务"""
         if self.current_task:
+            self.current_task.cancel()
             await self.playback.event_queue.put(PlaybackEvent.PAUSE)
             await self.playback.event_queue.put(PlaybackEvent.RESUME)
-            self.current_task.cancel()
         if user_input == PlaybackEvent.PAUSE:
             return
         task_func = self.process_voice if is_voice else self.process_text

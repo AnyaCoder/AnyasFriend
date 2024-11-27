@@ -2,13 +2,13 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class TTSConfig(BaseModel):
     version: Optional[Literal["fish-speech"]] = "fish-speech"  # 默认为 google
     api_key: Optional[str] = None
-    api_url: Optional[str] = None
+    base_url: Optional[str] = None
     playback_user: bool = False
     playback_assistant: bool = True
     reference_audios: list = [
@@ -20,7 +20,7 @@ class TTSConfig(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    version: Optional[Literal["deepseek-chat"]] = "deepseek-chat"
+    version: str = "deepseek-chat"
     system_message: str = """\
 作为一个ai,你不应该欺骗我，那么接下来，\
 你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，\
@@ -28,13 +28,14 @@ class LLMConfig(BaseModel):
 并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!\
 """
     api_key: Optional[str] = None
-    api_url: Optional[str] = None
+    base_url: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class ASRConfig(BaseModel):
     version: Optional[Literal["funasr"]] = "funasr"
     api_key: Optional[str] = None
-    api_url: Optional[str] = None
+    base_url: Optional[str] = None
     disable_update: bool = False  # 是否关闭自动更新（FunASR离线使用必须关闭）
 
 

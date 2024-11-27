@@ -8,7 +8,7 @@ from anyasfriend.config import config
 
 class InMemory(Memory):
     def __init__(self):
-        self.messages: list[dict[str, str]] = []
+        super().__init__()
         self.set_system_message(config.chatbot.llm.system_message)
 
     def store(self, role: str, content: str, delta: bool = False) -> None:
