@@ -35,6 +35,7 @@ chatbot:
     reference_texts:
       - D:\voices\example_1.lab
       - D:\voices\example_2.lab
+    # edge-tts, fish-speech
     version: fish-speech
   vad:
     version: silero-vad

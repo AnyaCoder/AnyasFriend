@@ -58,11 +58,10 @@ class SileroVAD(VAD):
                 iter = self.state.get_result(speech_prob, chunk_np_original)
 
                 for prob, dbs, _bytes in iter:  # detected a sequence of voice bytes
-                    rounded_probs = [round(x, 2) for x in prob]
-                    rounded_dbs = [round(y, 2) for y in dbs]
+                    # rounded_probs = [round(x, 2) for x in prob]
+                    # rounded_dbs = [round(y, 2) for y in dbs]
                     # print("len: ", len(rounded_probs), ", probs: ", rounded_probs, " byte_len: ", len(_bytes))
                     # print("len: ", len(rounded_dbs), ", dbs: ", rounded_dbs)
-
                     yield _bytes
 
 
@@ -83,6 +82,7 @@ class StateMachine:
         self.miss_count = 0  # 计数器：连续未满足阈值的次数
         self.db_threshold = config.db_threshold
 
+    @classmethod
     def calculate_db(self, audio_data: np.ndarray) -> float:
         rms = np.sqrt(np.mean(np.square(audio_data)))
         reference = 1.0
@@ -104,6 +104,7 @@ class StateMachine:
             if prob >= self.prob_threshold and db >= self.db_threshold:
                 self.state = State.ACTIVE
                 self.update(chunk_bytes, prob, db)
+                yield [], [], b"<|PAUSE|>"
             else:
                 pass
         elif self.state == State.ACTIVE:
@@ -122,7 +123,8 @@ class StateMachine:
                 self.miss_count += 1  # 连续未满足阈值，计数器加1
                 if self.miss_count >= 24:  # 连续24次不满足阈值 ~ 0.8 s 空音频
                     self.state = State.IDLE
-                    if len(self.probs) > 30:  # ~ 1 s
+                    yield [], [], b"<|RESUME|>"  # 先恢复播放
+                    if len(self.probs) > 30:  # ~ 1 s , 满足条件，返回音频
                         yield self.probs.copy(), self.dbs.copy(), self.bytes
                     self.probs.clear()
                     self.dbs.clear()

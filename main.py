@@ -31,5 +31,9 @@ async def main(config: Config):
 
 
 if __name__ == "__main__":
+    # handle Ctrl+C
+    import signal
+
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     logger.info(f"{config.model_dump_json(indent=4)}")
     asyncio.run(main(config))

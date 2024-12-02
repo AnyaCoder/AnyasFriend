@@ -14,15 +14,7 @@ logger.add(sys.stdout, level="INFO")
 
 
 class Chatbot:
-    def __init__(
-        self,
-        *,
-        asr: ASR,
-        llm: LLM,
-        tts: TTS,
-        vad: VAD,
-        memory: Memory,
-    ):
+    def __init__(self, *, asr: ASR, llm: LLM, tts: TTS, vad: VAD, memory: Memory):
         self.asr = asr
         self.llm = llm
         self.tts = tts
@@ -31,9 +23,12 @@ class Chatbot:
         self.text_input_queue = asyncio.Queue()
         self.voice_input_queue = asyncio.Queue()
         self.current_task = None
-        self.playback = Playback(sr=44100)
+        self.playback = Playback(sr=tts.config.base.playback_sample_rate)
         self.playback_assistant = self.tts.config.base.playback_assistant
         self.playback_user = self.tts.config.base.playback_user
+
+        self.last_task_id = "Task-?"
+        self.last_text = "<?>"
 
     async def listen_for_text(self, websocket: ClientConnection):
         async for text in websocket:
@@ -43,9 +38,20 @@ class Chatbot:
     async def listen_for_voice(self, websocket: ClientConnection):
         async for chunk in websocket:
             for audio_bytes in self.vad.detect_speech(chunk):
-                voice_input = await self.asr.recognize_speech(audio_bytes)
-                logger.info(f"[Voice input]: {voice_input}")
-                await self.voice_input_queue.put(voice_input)  # 放入语音输入队列
+                if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
+                    self.playback.is_playing = False
+                    if self.current_task:
+                        self.current_task.cancel()
+                        await self.playback.event_queue.put(PlaybackEvent.PAUSE)
+                    continue
+                if not self.playback.is_playing and audio_bytes == b"<|RESUME|>":
+                    self.playback.is_playing = True
+                    await self.playback.event_queue.put(PlaybackEvent.RESUME)
+                    continue
+                if self.playback.is_playing:
+                    voice_input = await self.asr.recognize_speech(audio_bytes)
+                    logger.info(f"[Voice input]: {voice_input}")
+                    await self.voice_input_queue.put(voice_input)  # 放入语音输入队列
 
     async def process_input(self):
         while True:
@@ -95,6 +101,7 @@ class Chatbot:
     async def recreate_task(self, user_input: str, is_voice: bool = False):
         """处理普通输入, 取消当前任务并启动新的任务"""
         if self.current_task:
+            self.last_task_id = self.current_task.get_name()
             self.current_task.cancel()
             await self.playback.event_queue.put(PlaybackEvent.PAUSE)
             await self.playback.event_queue.put(PlaybackEvent.RESUME)
@@ -116,22 +123,33 @@ class Chatbot:
         return audio_response
 
     async def respond(self, input_text: str) -> AsyncGenerator[str, Any]:
+
         async for text in self.llm.generate_response(input_text):
+            # Make async generator happy to exit
+            if (
+                self.last_task_id != self.current_task.get_name()
+                and self.last_text == text
+            ):
+                logger.warning(f"{self.last_task_id} != {self.current_task.get_name()}")
+                self.last_text = "<?>"
+                continue
             self.memory.store("assistant", text, delta=True)
+            self.last_text = text
             yield text
 
     async def speak(self, text_stream: AsyncGenerator[str, Any]) -> bytes:
 
         audio_response = bytearray()
-        try:
-            async for text_chunk in text_stream:
+
+        async for text_chunk in text_stream:
+            try:
                 async for audio_chunk in self.tts.synthesize(text_chunk):
-                    if self.playback_assistant:
+                    if self.playback_assistant and self.playback.is_playing:
                         await self.playback.audio_queue.put(audio_chunk)
                     audio_response.extend(audio_chunk)
-        except asyncio.CancelledError:
-            logger.warning("Speak/Text task was cancelled.")
-            raise
+            except asyncio.CancelledError:
+                logger.warning("Speak task was cancelled.")
+                raise
 
         return bytes(audio_response)
 

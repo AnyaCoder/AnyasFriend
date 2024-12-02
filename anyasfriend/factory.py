@@ -10,7 +10,7 @@ from anyasfriend.components.llm import (
     OllamaLLMConfig,
 )
 from anyasfriend.components.memory import InMemory
-from anyasfriend.components.tts import FishTTS, FishTTSConfig
+from anyasfriend.components.tts import EdgeTTS, EdgeTTSConfig, FishTTS, FishTTSConfig
 from anyasfriend.components.vad import SileroVAD, SileroVADConfig
 from anyasfriend.config import ChatbotConfig
 
@@ -61,7 +61,18 @@ class ChatbotFactory:
                 config=FishTTSConfig(
                     base=TTSBaseConfig(
                         api_key=config.tts.api_key,
-                        api_url=config.tts.base_url,
+                        base_url=config.tts.base_url,
+                        playback_sample_rate=44100,
+                    )
+                )
+            )
+        elif config.tts.version == "edge-tts":
+            tts = EdgeTTS(
+                config=EdgeTTSConfig(
+                    base=TTSBaseConfig(
+                        api_key=config.tts.api_key,
+                        base_url=config.tts.base_url,
+                        playback_sample_rate=24000,
                     )
                 )
             )

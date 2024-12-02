@@ -1,16 +1,18 @@
 # anyasfriend/components/interfaces/tts.py
 
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import httpx
 from pydantic import BaseModel
 
 
 class TTSBaseConfig(BaseModel):
-    api_key: str = "YOUR_API_KEY"
-    base_url: str = "http://localhost:8080"
+    api_key: Optional[str] = "YOUR_API_KEY"
+    base_url: Optional[str] = "http://localhost:8080"
     playback_user: bool = False
     playback_assistant: bool = True
+    playback_sample_rate: int = 44100
 
 
 class AnyTTSConfig(BaseModel):

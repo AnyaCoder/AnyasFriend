@@ -6,9 +6,9 @@ from pydantic import BaseModel, field_validator
 
 
 class TTSConfig(BaseModel):
-    version: Optional[Literal["fish-speech"]] = "fish-speech"  # 默认为 google
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    version: Optional[str] = "fish-speech"  # 默认为 google
+    api_key: Optional[str] = "TTS_API_KEY"
+    base_url: Optional[str] = "http://localhost:8080"
     playback_user: bool = False
     playback_assistant: bool = True
     reference_audios: list = [
@@ -27,8 +27,8 @@ class LLMConfig(BaseModel):
 才能让我的体验更好，回答简洁口语化，\
 并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!\
 """
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: Optional[str] = "LLM_API_KEY"
+    base_url: Optional[str] = "http://localhost:11434"
     provider: Optional[str] = None
 
 
@@ -93,7 +93,8 @@ def load_config(path: Path | str = default_config_path) -> Config:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 config = Config(**yaml.safe_load(f.read()))
-        except Exception:
+        except Exception as e:
+            print(e)
             config = init_config()
             print("Failed to load config file, use default config instead.")
 
