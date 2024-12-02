@@ -1,7 +1,6 @@
 # main.py
 import asyncio
 
-import websockets
 from loguru import logger
 
 from anyasfriend.config import Config, config
@@ -12,21 +11,11 @@ async def main(config: Config):
 
     chatbot = ChatbotFactory.create_chatbot(config=config.chatbot)
 
-    text_websocket = websockets.serve(
-        chatbot.listen_for_text,
+    await chatbot.chat(
         config.backend.text_ws_host,
         config.backend.text_ws_port,
-    )
-    voice_websocket = websockets.serve(
-        chatbot.listen_for_voice,
         config.backend.voice_ws_host,
         config.backend.voice_ws_port,
-    )
-
-    await asyncio.gather(
-        text_websocket,
-        voice_websocket,
-        chatbot.chat(),
     )
 
 

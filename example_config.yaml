@@ -25,7 +25,7 @@ chatbot:
     version: in-memory
   tts:
     api_key: YOUR_API_KEY
-    # fish-speech: http://localhost:8080
+    # fish-speech: http://localhost:8080, https://api.fish.audio
     base_url: http://localhost:8080
     playback_assistant: true
     playback_user: false

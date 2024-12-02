@@ -1,8 +1,8 @@
-# anyasfriend/chatbot.py
 import asyncio
 import sys
 from typing import Any, AsyncGenerator
 
+import websockets
 from loguru import logger
 from websockets.asyncio.client import ClientConnection
 
@@ -30,57 +30,70 @@ class Chatbot:
         self.last_task_id = "Task-?"
         self.last_text = "<?>"
 
-    async def listen_for_text(self, websocket: ClientConnection):
-        async for text in websocket:
-            logger.info(f"[Text input]: {text}")
-            await self.text_input_queue.put(text)  # 放入文字输入队列
+        self.text_clients: set[ClientConnection] = (
+            set()
+        )  # 用于存储所有的文本 WebSocket 客户端连接
+        self.voice_clients: set[ClientConnection] = (
+            set()
+        )  # 用于存储所有的语音 WebSocket 客户端连接
 
-    async def listen_for_voice(self, websocket: ClientConnection):
-        async for chunk in websocket:
-            for audio_bytes in self.vad.detect_speech(chunk):
-                if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
-                    self.playback.is_playing = False
-                    if self.current_task:
-                        self.current_task.cancel()
-                        await self.playback.event_queue.put(PlaybackEvent.PAUSE)
-                    continue
-                if not self.playback.is_playing and audio_bytes == b"<|RESUME|>":
-                    self.playback.is_playing = True
-                    await self.playback.event_queue.put(PlaybackEvent.RESUME)
-                    continue
-                if self.playback.is_playing:
-                    voice_input = await self.asr.recognize_speech(audio_bytes)
-                    logger.info(f"[Voice input]: {voice_input}")
-                    await self.voice_input_queue.put(voice_input)  # 放入语音输入队列
+    async def listen_for_text(self, websocket: ClientConnection, path: str = ""):
+        logger.info(f"[Text input]: Client connected {websocket.remote_address}")
+        self.text_clients.add(websocket)
+        try:
+            async for text in websocket:
+                logger.info(f"[Text input]: {text}")
+                await self.text_input_queue.put(text)
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning(f"Text connection closed: {websocket.remote_address}")
+        finally:
+            self.text_clients.discard(websocket)
+
+    async def listen_for_voice(self, websocket: ClientConnection, path: str = ""):
+        logger.info(f"[Voice input]: Client connected {websocket.remote_address}")
+        self.voice_clients.add(websocket)
+        try:
+            async for chunk in websocket:
+                for audio_bytes in self.vad.detect_speech(chunk):
+                    if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
+                        self.playback.is_playing = False
+                        if self.current_task:
+                            self.current_task.cancel()
+                            await self.playback.event_queue.put(PlaybackEvent.PAUSE)
+                    elif not self.playback.is_playing and audio_bytes == b"<|RESUME|>":
+                        self.playback.is_playing = True
+                        await self.playback.event_queue.put(PlaybackEvent.RESUME)
+                    elif self.playback.is_playing:
+                        voice_input = await self.asr.recognize_speech(audio_bytes)
+                        logger.info(f"[Voice input]: {voice_input}")
+                        await self.voice_input_queue.put(voice_input)
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning(f"Voice connection closed: {websocket.remote_address}")
+        finally:
+            self.voice_clients.discard(websocket)
 
     async def process_input(self):
         while True:
-            # 优先处理文字输入
             if not self.text_input_queue.empty():
-                user_input: str = await self.text_input_queue.get()
+                user_input = await self.text_input_queue.get()
                 await self.handle_input(user_input)
 
-            # 处理语音输入
             elif not self.voice_input_queue.empty():
                 user_input = await self.voice_input_queue.get()
                 await self.handle_input(user_input, is_voice=True)
 
-            # 等待下一次输入
             await asyncio.sleep(0.01)
 
     async def handle_input(self, user_input: str, is_voice: bool = False):
         maybe_command = user_input.strip()
 
-        # 处理命令
         if maybe_command.startswith("/"):
             await self.handle_command(maybe_command, is_voice)
-            return  # 处理完命令后返回，不再继续处理输入
+            return
 
-        # 处理普通输入
         await self.recreate_task(user_input, is_voice)
 
     async def handle_command(self, command: str, is_voice: bool):
-        """处理命令输入"""
         match command:
             case "/clear":
                 self.memory.clear()
@@ -99,7 +112,6 @@ class Chatbot:
                 print("Unknown command, see /help for more info.")
 
     async def recreate_task(self, user_input: str, is_voice: bool = False):
-        """处理普通输入, 取消当前任务并启动新的任务"""
         if self.current_task:
             self.last_task_id = self.current_task.get_name()
             self.current_task.cancel()
@@ -123,9 +135,7 @@ class Chatbot:
         return audio_response
 
     async def respond(self, input_text: str) -> AsyncGenerator[str, Any]:
-
         async for text in self.llm.generate_response(input_text):
-            # Make async generator happy to exit
             if (
                 self.last_task_id != self.current_task.get_name()
                 and self.last_text == text
@@ -138,23 +148,55 @@ class Chatbot:
             yield text
 
     async def speak(self, text_stream: AsyncGenerator[str, Any]) -> bytes:
-
         audio_response = bytearray()
-
         async for text_chunk in text_stream:
             try:
+                await self.send_text_response(text_chunk)
                 async for audio_chunk in self.tts.synthesize(text_chunk):
                     if self.playback_assistant and self.playback.is_playing:
                         await self.playback.audio_queue.put(audio_chunk)
                     audio_response.extend(audio_chunk)
+                    await self.send_audio_response(audio_chunk)
             except asyncio.CancelledError:
                 logger.warning("Speak task was cancelled.")
                 raise
-
         return bytes(audio_response)
 
-    async def chat(self):
-        logger.info("聊天机器人准备好，等待对话...")
-        # 只需要处理输入，监听工作已经通过 websockets.serve 做了
-        # 同时把语音打开
-        await asyncio.gather(self.process_input(), self.playback.start_playback())
+    async def send_text_response(self, text: str):
+        for websocket in self.text_clients:
+            try:
+                await websocket.send(text)
+            except websockets.exceptions.ConnectionClosed:
+                self.text_clients.discard(websocket)
+
+    async def send_audio_response(self, audio_data: bytes):
+        for websocket in self.voice_clients:
+            try:
+                await websocket.send(audio_data)
+            except websockets.exceptions.ConnectionClosed:
+                self.voice_clients.discard(websocket)
+
+    async def chat(
+        self,
+        text_ws_host: str,
+        text_ws_port: int,
+        voice_ws_host: str,
+        voice_ws_port: int,
+    ):
+        logger.info("初始化...完成。")
+        self.text_websocket = websockets.serve(
+            self.listen_for_text,
+            text_ws_host,
+            text_ws_port,
+        )
+        self.voice_websocket = websockets.serve(
+            self.listen_for_voice,
+            voice_ws_host,
+            voice_ws_port,
+        )
+        await asyncio.gather(
+            self.text_websocket,
+            self.voice_websocket,
+            self.process_input(),
+            self.playback.start_playback(),
+        )

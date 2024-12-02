@@ -88,6 +88,7 @@ class FishTTS(TTS):
                 "authorization": f"Bearer {self.config.base.api_key}",
                 "Content-Type": "application/msgpack",
             },
+            timeout=30.0,
         ) as response:
             if response.status_code != 200:
                 logger.error(

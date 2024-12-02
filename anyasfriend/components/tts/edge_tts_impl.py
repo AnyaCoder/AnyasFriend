@@ -30,20 +30,35 @@ class EdgeTTSRequest(EdgeTTSRequestConfig):
 class EdgeTTS(TTS):
     def __init__(self, config: EdgeTTSConfig):
         super().__init__(config)
-
+        self.timeout = 10.0
         logger.info(f"EdgeTTS initalized!")
 
     async def synthesize(self, text: str):
+        try:
+            mp3_bytes = await asyncio.wait_for(
+                self._fetch_audio_chunks(text), timeout=self.timeout
+            )
+            audio_bytes = mp3_to_wav(bytes(mp3_bytes))
+            i = 0
+            while i < len(audio_bytes):
+                yield audio_bytes[i : i + 16384]
+                i += 16384
+        except asyncio.TimeoutError:
+            logger.error(f"EdgeTTS timed out after {self.timeout} seconds.")
+            raise TimeoutError(
+                f"EdgeTTS took too long and was cancelled after {self.timeout} seconds."
+            )
+        except Exception as e:
+            logger.error(f"Error during EdgeTTS: {e}")
+            raise e
+
+    async def _fetch_audio_chunks(self, text: str) -> bytearray:
         communicate = edge_tts.Communicate(text, self.config.request.voice)
         mp3_bytes = bytearray()
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":
                 mp3_bytes.extend(chunk["data"])
-        audio_bytes = mp3_to_wav(bytes(mp3_bytes))
-        i = 0
-        while i < len(audio_bytes):
-            yield audio_bytes[i : i + 16384]
-            i += 16384
+        return mp3_bytes
 
     async def adjust_params(self, params: EdgeTTSConfig) -> None:
         self.config = params
