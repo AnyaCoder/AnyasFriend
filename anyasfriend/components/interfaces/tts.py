@@ -13,6 +13,7 @@ class TTSBaseConfig(BaseModel):
     playback_user: bool = False
     playback_assistant: bool = True
     playback_sample_rate: int = 44100
+    playback_frames_per_buffer: int = 16384
 
 
 class AnyTTSConfig(BaseModel):

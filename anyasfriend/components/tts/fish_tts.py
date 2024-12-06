@@ -95,7 +95,9 @@ class FishTTS(TTS):
                     f"Failed to get response, status code: {response.status_code}"
                 )
                 raise
-            async for chunk in response.aiter_bytes(chunk_size=self.frames_per_buffer):
+            async for chunk in response.aiter_bytes(
+                chunk_size=self.frames_per_buffer * 2
+            ):
                 yield chunk
 
     async def adjust_params(self, params: FishTTSConfig) -> None:

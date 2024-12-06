@@ -31,6 +31,7 @@ class EdgeTTS(TTS):
     def __init__(self, config: EdgeTTSConfig):
         super().__init__(config)
         self.timeout = 10.0
+        self.frame_per_buffer = 16384
         logger.info(f"EdgeTTS initalized!")
 
     async def synthesize(self, text: str):
@@ -41,8 +42,8 @@ class EdgeTTS(TTS):
             audio_bytes = mp3_to_wav(bytes(mp3_bytes))
             i = 0
             while i < len(audio_bytes):
-                yield audio_bytes[i : i + 16384]
-                i += 16384
+                yield audio_bytes[i : i + self.frame_per_buffer * 2]
+                i += self.frame_per_buffer * 2
         except asyncio.TimeoutError:
             logger.error(f"EdgeTTS timed out after {self.timeout} seconds.")
             raise TimeoutError(

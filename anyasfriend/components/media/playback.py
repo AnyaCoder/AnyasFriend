@@ -1,3 +1,4 @@
+# anyasfriend/components/media/playback.py
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from enum import Enum
@@ -13,10 +14,11 @@ class PlaybackEvent(Enum):
 
 
 class Playback:
-    def __init__(self, sr=16000):
+    def __init__(self, sample_rate: int = 16000, frames_per_buffer: int = 16384):
         self.audio_queue = asyncio.Queue()
         self.event_queue = asyncio.Queue()
-        self.sr = sr
+        self.sr = sample_rate
+        self.frames_per_buffer = frames_per_buffer
         self.p = pyaudio.PyAudio()
         self.audio_format = pyaudio.paInt16
         self.stream = None
@@ -24,13 +26,35 @@ class Playback:
         self.loop = asyncio.get_event_loop()
         self.is_playing = False  # state
         self.lock = asyncio.Lock()  # Ensure thread-safe access to stream
+        self.play_complete = asyncio.Event()
+        self.play_complete.clear()
 
     def start_stream(self):
         self.is_playing = True
         self.stream = self.p.open(
-            format=self.audio_format, channels=1, rate=self.sr, output=True
+            format=self.audio_format,
+            channels=1,
+            rate=self.sr,
+            frames_per_buffer=self.frames_per_buffer,
+            output=True,
+            stream_callback=self.callback,
         )
         logger.info("Playback stream started.")
+
+    def callback(self, in_data, frame_count, time_info, status_flags):
+        # print("heartbeat: {invoke_time}".format(invoke_time=time_info["current_time"]))
+        if not self.audio_queue.empty():
+            audio_data: bytes | None = self.audio_queue.get_nowait()
+            # print(f"audio_data: {len(audio_data)}")
+            if not audio_data:
+                # logger.warning(">>> play_complete")
+                self.play_complete.set()
+            if len(audio_data) < frame_count * 2:
+                audio_data += b"\x00" * (frame_count * 2 - len(audio_data))
+            return (audio_data, pyaudio.paContinue)
+        else:
+            # print(f"empty audio data")
+            return (b"\x00" * (frame_count * 2), pyaudio.paContinue)
 
     async def stop_stream(self):
         async with self.lock:
@@ -64,16 +88,10 @@ class Playback:
             audio_bytes = audio_bytes[44:]  # Skip the 44-byte header
         return audio_bytes
 
-    async def play_audio(self, audio_bytes: bytes):
+    def play_audio(self, audio_bytes: bytes | None):
         """Play the audio data asynchronously using an executor."""
-        async with self.lock:
-            if self.is_playing and self.stream and self.stream.is_active():
-                await self.loop.run_in_executor(
-                    self.executor, self.stream.write, audio_bytes
-                )
-            else:
-                # logger.warning("Attempted to write to a stopped or inactive stream.")
-                pass
+        audio_bytes = self.remove_wav_header(audio_bytes)
+        self.audio_queue.put_nowait(audio_bytes)
 
     async def handle_event(self, event: PlaybackEvent):
         logger.debug(f"Received event: {event}")
@@ -92,21 +110,11 @@ class Playback:
                 await self.audio_queue.put(None)
                 break
 
-    async def loop_data(self):
-        while True:
-            audio_bytes = await self.audio_queue.get()
-            if audio_bytes is None:
-                logger.info("Received None, stop consuming...")
-                break
-
-            audio_bytes = self.remove_wav_header(audio_bytes)
-            await self.play_audio(audio_bytes)
-
     async def start_playback(self):
         logger.info("Playback is running in a separate thread...")
         self.start_stream()
 
-        await asyncio.gather(self.loop_data(), self.loop_event())
+        await asyncio.gather(self.loop_event())
 
         # Cleanup and stop playback
         await self.stop_stream()
