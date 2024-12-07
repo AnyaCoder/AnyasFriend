@@ -11,7 +11,7 @@ from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Memory
 from anyasfriend.components.media import Playback, PlaybackEvent
 
 logger.remove()
-logger.add(sys.stdout, level="DEBUG")
+logger.add(sys.stdout, level="INFO")
 
 
 class Chatbot:
@@ -56,8 +56,9 @@ class Chatbot:
             async for text in tqdm(self._data_wrapper(websocket), desc="Text chunk"):
                 logger.info(f"[Text input]: {text}")
                 await self.text_input_queue.put(text)
-        except websockets.exceptions.ConnectionClosed:
-            logger.warning(f"Text connection closed: {websocket.remote_address}")
+            raise Exception("Gracefully closed")
+        except Exception as e:
+            logger.warning(f"Text connection closed: {websocket.remote_address},\n caused by: {e}")
         finally:
             self.text_clients.discard(websocket)
 
@@ -66,6 +67,8 @@ class Chatbot:
         self.voice_clients.add(websocket)
         try:
             async for chunk in tqdm(self._data_wrapper(websocket), desc="Audio chunk"):
+                if chunk == b"<|END|>":
+                    raise Exception("Gracefully closed")
                 for audio_bytes in self.vad.detect_speech(chunk):
                     if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
                         self.playback.is_playing = False
@@ -79,8 +82,8 @@ class Chatbot:
                         voice_input = await self.asr.recognize_speech(audio_bytes)
                         logger.info(f"[Voice input]: {voice_input}")
                         await self.voice_input_queue.put(voice_input)
-        except websockets.exceptions.ConnectionClosed:
-            logger.warning(f"Voice connection closed: {websocket.remote_address}")
+        except Exception as e:
+            logger.warning(f"Voice connection closed: {websocket.remote_address},\n caused by: {e}")
         finally:
             self.voice_clients.discard(websocket)
 
