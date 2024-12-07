@@ -70,7 +70,7 @@ class FunASR(ASR):
         start_time = time.time()
         origin_audios = [audio_data]
         audios = [
-            (np.frombuffer(audio, dtype=np.int16).astype(np.float32).copy() / 32767)
+            (np.frombuffer(audio, dtype=np.int16).astype(np.float16).copy() / 32768)
             for audio in origin_audios
         ]
         audios = [torch.from_numpy(audio).float() for audio in audios]
@@ -88,10 +88,14 @@ class FunASR(ASR):
         logger.info(f"[EXEC] ASR time: {(time.time() - start_time) * 1000:.2f}ms")
         return transcriptions[0].text
 
+    @torch.no_grad()
     async def batch_asr(self, model, audios, sr, language="auto"):
-        resampled_audios = await asyncio.gather(
-            *[self.resample_audio(audio, sr) for audio in audios]
-        )
+        if sr != 16000:
+            resampled_audios = await asyncio.gather(
+                *[self.resample_audio(audio, sr) for audio in audios]
+            )
+        else:
+            resampled_audios = audios
 
         async with global_lock:
             if language in PROMPT.keys():

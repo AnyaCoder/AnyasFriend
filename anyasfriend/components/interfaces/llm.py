@@ -26,11 +26,6 @@ class LLM(ABC):
         self.stream_processor = TextStreamProcessor()
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0, read=10.0, write=10.0),
-            limits=httpx.Limits(
-                max_connections=None,
-                max_keepalive_connections=None,
-                keepalive_expiry=None,
-            ),
             proxies={
                 # no proxy for local
                 "http://127.0.0.1": None,

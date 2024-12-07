@@ -4,6 +4,7 @@ from typing import Any, AsyncGenerator
 
 import websockets
 from loguru import logger
+from tqdm.asyncio import tqdm
 from websockets.asyncio.client import ClientConnection
 
 from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Memory
@@ -44,11 +45,15 @@ class Chatbot:
         self.subtitle_text_queue = asyncio.Queue()
         self.tts_audio_queue = asyncio.Queue()
 
+    async def _data_wrapper(self, websocket):
+        async for data in websocket:
+            yield data
+
     async def listen_for_text(self, websocket: ClientConnection, path: str = ""):
         logger.info(f"[Text input]: Client connected {websocket.remote_address}")
         self.text_clients.add(websocket)
         try:
-            async for text in websocket:
+            async for text in tqdm(self._data_wrapper(websocket), desc="Text chunk"):
                 logger.info(f"[Text input]: {text}")
                 await self.text_input_queue.put(text)
         except websockets.exceptions.ConnectionClosed:
@@ -60,7 +65,7 @@ class Chatbot:
         logger.info(f"[Voice input]: Client connected {websocket.remote_address}")
         self.voice_clients.add(websocket)
         try:
-            async for chunk in websocket:
+            async for chunk in tqdm(self._data_wrapper(websocket), desc="Audio chunk"):
                 for audio_bytes in self.vad.detect_speech(chunk):
                     if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
                         self.playback.is_playing = False
@@ -89,7 +94,7 @@ class Chatbot:
                 user_input = await self.voice_input_queue.get()
                 await self.handle_input(user_input, is_voice=True)
 
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(0.1)
 
     async def handle_input(self, user_input: str, is_voice: bool = False):
         maybe_command = user_input.strip()

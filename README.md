@@ -35,7 +35,7 @@ python main.py
 
 ```
 
-Next, connect micphone stream (44100hz) to ws://localhost:8765 (default)
+Next, connect micphone stream (16000hz) to ws://localhost:8765 (default)
 
 or use [fish-speech-gui](https://github.com/AnyaCoder/fish-speech-gui/releases) -> Chat Agent -> Settings -> Mic Setting (Always listening)
 

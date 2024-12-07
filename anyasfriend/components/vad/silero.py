@@ -3,7 +3,6 @@
 import asyncio
 from enum import Enum
 
-import librosa
 import numpy as np
 import torch
 from loguru import logger
@@ -14,10 +13,10 @@ from anyasfriend.components.interfaces import VAD
 
 
 class SileroVADConfig(BaseModel):
-    orig_sr: int = 44100
+    orig_sr: int = 16000
     target_sr: int = 16000
     prob_threshold: float = 0.3
-    db_threshold: int = 60
+    db_threshold: int = 40
 
 
 class SileroVAD(VAD):
@@ -32,37 +31,36 @@ class SileroVAD(VAD):
         return load_silero_vad()
 
     def detect_speech(self, audio_data: bytes):
-        audio_np_original = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-        audio_np = audio_np_original / 32767
-        audio_resampled_original = librosa.resample(
-            audio_np_original,
-            orig_sr=self.config.orig_sr,
-            target_sr=self.config.target_sr,
-        )
-        audio_resampled = librosa.resample(
-            audio_np, orig_sr=self.config.orig_sr, target_sr=self.config.target_sr
-        )
-
-        for i in range(0, len(audio_resampled), self.window_size_samples):
-            chunk_np_original = audio_resampled_original[
-                i : i + self.window_size_samples
-            ]
-            chunk_np = audio_resampled[i : i + self.window_size_samples]
+        audio_np = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32767
+        for i in range(0, len(audio_np), self.window_size_samples):
+            chunk_np = audio_np[i : i + self.window_size_samples]
             if len(chunk_np) < self.window_size_samples:
                 break
             chunk = torch.Tensor(chunk_np)
-            speech_prob = self.model(chunk, self.config.target_sr).item()
+
+            with torch.no_grad():
+                speech_prob = self.model(chunk, self.config.target_sr).item()
 
             if speech_prob:
-                # print(f"Speech prob: {speech_prob * 100:.2f}%")
-                iter = self.state.get_result(speech_prob, chunk_np_original)
+                # print(speech_prob)
+                iter = self.state.get_result(speech_prob, chunk_np)
 
-                for prob, dbs, _bytes in iter:  # detected a sequence of voice bytes
-                    # rounded_probs = [round(x, 2) for x in prob]
-                    # rounded_dbs = [round(y, 2) for y in dbs]
-                    # print("len: ", len(rounded_probs), ", probs: ", rounded_probs, " byte_len: ", len(_bytes))
-                    # print("len: ", len(rounded_dbs), ", dbs: ", rounded_dbs)
-                    yield _bytes
+                for probs, dbs, chunk in iter:  # detected a sequence of voice bytes
+                    rounded_probs = [round(x, 2) for x in probs]
+                    rounded_dbs = [round(y, 2) for y in dbs]
+                    print(
+                        "len: ",
+                        len(rounded_probs),
+                        ", probs: ",
+                        rounded_probs,
+                        " byte_len: ",
+                        len(chunk),
+                    )
+                    print("len: ", len(rounded_dbs), ", dbs: ", rounded_dbs)
+                    audio_chunk = bytes(chunk)
+                    yield audio_chunk
+
+        del audio_np
 
 
 # 定义状态枚举
@@ -74,31 +72,33 @@ class State(Enum):
 
 class StateMachine:
     def __init__(self, config: SileroVADConfig):
-        self.state = State.IDLE  # 初始化为空闲状态
+        self.state = State.IDLE
         self.prob_threshold = config.prob_threshold
         self.probs = []
         self.dbs = []
-        self.bytes = bytes()
-        self.miss_count = 0  # 计数器：连续未满足阈值的次数
+        self.bytes = bytearray()
+        self.miss_count = 0
         self.db_threshold = config.db_threshold
 
     @classmethod
-    def calculate_db(self, audio_data: np.ndarray) -> float:
+    def calculate_db(cls, audio_data: np.ndarray) -> float:
         rms = np.sqrt(np.mean(np.square(audio_data)))
-        reference = 1.0
-        if rms == 0:
-            return -np.inf
-        db = 20 * np.log10(rms / reference)
-        return db
+        return 20 * np.log10(rms) if rms > 0 else -np.inf
 
     def update(self, chunk_bytes, prob, db):
         self.probs.append(prob)
         self.dbs.append(db)
-        self.bytes += chunk_bytes
+        self.bytes.extend(chunk_bytes)
 
-    def process(self, prob, chunk_np: np.ndarray):
-        chunk_bytes = chunk_np.astype(np.int16).tobytes()
-        db = self.calculate_db(chunk_np)
+    def reset_buffers(self):
+        self.probs.clear()
+        self.dbs.clear()
+        self.bytes.clear()
+
+    def process(self, prob, float_chunk_np: np.ndarray):
+        int_chunk_np = float_chunk_np * 32767
+        chunk_bytes = int_chunk_np.astype(np.int16).tobytes()
+        db = self.calculate_db(int_chunk_np)
 
         if self.state == State.IDLE:
             if prob >= self.prob_threshold and db >= self.db_threshold:
@@ -118,18 +118,16 @@ class StateMachine:
             self.update(chunk_bytes, prob, db)
             if prob >= self.prob_threshold:
                 self.state = State.ACTIVE
-                self.miss_count = 0  # 重置计数器
+                self.miss_count = 0
             else:
-                self.miss_count += 1  # 连续未满足阈值，计数器加1
-                if self.miss_count >= 24:  # 连续24次不满足阈值 ~ 0.8 s 空音频
+                self.miss_count += 1
+                if self.miss_count >= 24:
                     self.state = State.IDLE
-                    yield [], [], b"<|RESUME|>"  # 先恢复播放
-                    if len(self.probs) > 30:  # ~ 1 s , 满足条件，返回音频
-                        yield self.probs.copy(), self.dbs.copy(), self.bytes
-                    self.probs.clear()
-                    self.dbs.clear()
-                    self.bytes = b""
-                    self.miss_count = 0  # 重置计数器
+                    yield [], [], b"<|RESUME|>"
+                    if len(self.probs) > 30:
+                        yield self.probs, self.dbs, self.bytes
+                        self.reset_buffers()
+                    self.miss_count = 0
 
     def get_result(self, input_num, chunk_np):
         yield from self.process(input_num, chunk_np)
@@ -139,11 +137,23 @@ async def vad_main():
     global vad, audio_queue
     vad = SileroVAD(config=SileroVADConfig())
     audio_queue = asyncio.Queue()
+    from tqdm.asyncio import tqdm
+
+    async def data_wrapper(websocket):
+        async for chunk in websocket:
+            yield chunk
 
     async def audio_handler(websocket):
-        async for chunk in websocket:
+        async for chunk in tqdm(data_wrapper(websocket), desc="Audio chunk"):
+            # print(len(chunk))
             for _bytes in vad.detect_speech(chunk):
-                await audio_queue.put(_bytes)
+                print(_bytes[:44])
+                # await audio_queue.put(_bytes)
+                pass
+
+    async def empty_run():
+        while True:
+            await asyncio.sleep(0.1)
 
     async def start_websocket_server():
         import websockets
@@ -154,7 +164,7 @@ async def vad_main():
         logger.info(f"WebSocket server started at ws://{host}:{port}")
         await start_server  # run forever until the task is cancelled
 
-    await start_websocket_server()
+    await asyncio.gather(start_websocket_server(), empty_run())
     # await start_playback(audio_queue, sr=vad.config.target_sr)
 
 
