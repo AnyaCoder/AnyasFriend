@@ -58,7 +58,9 @@ class Chatbot:
                 await self.text_input_queue.put(text)
             raise Exception("Gracefully closed")
         except Exception as e:
-            logger.warning(f"Text connection closed: {websocket.remote_address},\n caused by: {e}")
+            logger.warning(
+                f"Text connection closed: {websocket.remote_address},\n caused by: {e}"
+            )
         finally:
             self.text_clients.discard(websocket)
 
@@ -83,7 +85,9 @@ class Chatbot:
                         logger.info(f"[Voice input]: {voice_input}")
                         await self.voice_input_queue.put(voice_input)
         except Exception as e:
-            logger.warning(f"Voice connection closed: {websocket.remote_address},\n caused by: {e}")
+            logger.warning(
+                f"Voice connection closed: {websocket.remote_address},\n caused by: {e}"
+            )
         finally:
             self.voice_clients.discard(websocket)
 
@@ -220,6 +224,7 @@ class Chatbot:
                 self.playback.play_audio(audio_chunk)
                 await self.send_audio_response(audio_chunk)
 
+        await self.send_audio_response(b"<|END|>")
         logger.debug("**** speak **** Done")
 
     async def send_text_response(self, text: str):
