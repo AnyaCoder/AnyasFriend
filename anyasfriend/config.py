@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import yaml
+from loguru import logger
 from pydantic import BaseModel, field_validator
 
 
@@ -92,10 +93,11 @@ def load_config(path: Path | str = default_config_path) -> Config:
     try:
         with open(path, "r", encoding="utf-8") as f:
             config = Config(**yaml.safe_load(f.read()))
+        logger.info("Configuration loaded successfully!")
     except Exception as e:
         print(e)
         config = init_config()
-        print("Failed to load config file, use default config instead.")
+        logger.warning("Failed to load config file, use default config instead.")
 
     return config
 
@@ -110,6 +112,7 @@ def save_config(path: Path | str = default_config_path) -> None:
         yaml.safe_dump(
             config.model_dump(), f, allow_unicode=True, default_flow_style=False
         )
+    logger.info("Configuration saved successfully!")
 
 
 # Auto load config
