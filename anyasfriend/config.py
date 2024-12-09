@@ -87,16 +87,15 @@ def init_config():
 def load_config(path: Path | str = default_config_path) -> Config:
     global config
 
-    path = Path(path)
+    path = str(Path(path))
 
-    if path.exists():
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                config = Config(**yaml.safe_load(f.read()))
-        except Exception as e:
-            print(e)
-            config = init_config()
-            print("Failed to load config file, use default config instead.")
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            config = Config(**yaml.safe_load(f.read()))
+    except Exception as e:
+        print(e)
+        config = init_config()
+        print("Failed to load config file, use default config instead.")
 
     return config
 
