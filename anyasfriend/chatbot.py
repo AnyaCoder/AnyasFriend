@@ -80,7 +80,7 @@ class Chatbot:
                     elif not self.playback.is_playing and audio_bytes == b"<|RESUME|>":
                         self.playback.is_playing = True
                         await self.playback.event_queue.put(PlaybackEvent.RESUME)
-                    elif self.playback.is_playing:
+                    elif self.playback.is_playing and len(audio_bytes) > 1024:
                         voice_input = await self.asr.recognize_speech(audio_bytes)
                         logger.info(f"[Voice input]: {voice_input}")
                         await self.voice_input_queue.put(voice_input)
@@ -210,6 +210,7 @@ class Chatbot:
                 if first_sentence:
                     first_sentence = False
                     await send_text()
+                    await self.send_audio_response(b"<|START|>")
 
             elif audio_chunk == b"<|EOS|>":
                 # 等这一句播放完
