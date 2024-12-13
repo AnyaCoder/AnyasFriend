@@ -1,4 +1,5 @@
 from .asr import ASR
+from .core import Core
 from .llm import LLM, AnyLLMConfig, LLMBaseConfig
 from .memory import Memory
 from .tts import TTS, AnyTTSConfig, TTSBaseConfig
@@ -10,6 +11,7 @@ __all__ = [
     "TTS",
     "VAD",
     "Memory",
+    "Core",
     "Chatbot",
     "AnyTTSConfig",
     "TTSBaseConfig",

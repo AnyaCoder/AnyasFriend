@@ -1,20 +1,23 @@
 import asyncio
 import sys
-from typing import Any, AsyncGenerator
+import uuid
+from datetime import datetime
+from uuid import UUID
 
+import ormsgpack
 import websockets
 from loguru import logger
 from tqdm.asyncio import tqdm
 from websockets.asyncio.client import ClientConnection
 
-from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Memory
-from anyasfriend.components.media import Playback, PlaybackEvent
+from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Core, Memory
+from anyasfriend.schema import AnyaData
 
 logger.remove()
 logger.add(sys.stdout, level="INFO")
 
 
-class Chatbot:
+class Chatbot(Core):
     def __init__(self, *, asr: ASR, llm: LLM, tts: TTS, vad: VAD, memory: Memory):
         self.asr = asr
         self.llm = llm
@@ -23,94 +26,140 @@ class Chatbot:
         self.memory = memory
         self.text_input_queue = asyncio.Queue()
         self.voice_input_queue = asyncio.Queue()
-        self.current_task = None
-        self.playback = Playback(
-            sample_rate=tts.config.base.playback_sample_rate,
-            frames_per_buffer=tts.config.base.playback_frames_per_buffer,
-        )
-        self.playback_assistant = self.tts.config.base.playback_assistant
-        self.playback_user = self.tts.config.base.playback_user
-        self.timeout = 2.0
-        self.last_task_id = "Task-?"
-        self.last_text = "<?>"
+        self.llm_prompt_queue = asyncio.Queue()
 
-        self.text_clients: set[ClientConnection] = (
+        self.timeout = 2.0
+
+        self.clients: set[ClientConnection] = (
             set()
-        )  # 用于存储所有的文本 WebSocket 客户端连接
-        self.voice_clients: set[ClientConnection] = (
-            set()
-        )  # 用于存储所有的语音 WebSocket 客户端连接
+        )  # 用于存储所有的 WebSocket 客户端连接
 
         self.tts_text_queue = asyncio.Queue()
-        self.subtitle_text_queue = asyncio.Queue()
+        self.temp_text_queue = asyncio.Queue()
         self.tts_audio_queue = asyncio.Queue()
+        self.accepted_identifier = uuid.uuid4()
+        self.continue_event.set()
+
+        self.only_one_text_event = asyncio.Event()
+        self.only_one_audio_event = asyncio.Event()
+        self.text_first_event = asyncio.Event()
 
     async def _data_wrapper(self, websocket):
         async for data in websocket:
             yield data
 
-    async def listen_for_text(self, websocket: ClientConnection, path: str = ""):
-        logger.info(f"[Text input]: Client connected {websocket.remote_address}")
-        self.text_clients.add(websocket)
-        try:
-            async for text in tqdm(self._data_wrapper(websocket), desc="Text chunk"):
-                logger.info(f"[Text input]: {text}")
-                await self.text_input_queue.put(text)
-            raise Exception("Gracefully closed")
-        except Exception as e:
-            logger.warning(
-                f"Text connection closed: {websocket.remote_address},\n caused by: {e}"
-            )
-        finally:
-            self.text_clients.discard(websocket)
+    async def send_back_text(self):
+        if self.only_one_text_event.is_set():
+            return  # 不能同时存在两个ACCEPT_TEXT, 得到一个之前必须把这个消耗掉
+        self.only_one_text_event.set()
+        # logger.debug("recv ACCEPT_TEXT")
+        unique_id, text = await self.tts_text_queue.get()
+        await self.send_response(AnyaData.Type.TEXT, text, unique_id)
+        # logger.debug(f"send_back_text: {text}")
+        self.only_one_text_event.clear()
+        self.text_first_event.set()  # 文本发完了
 
-    async def listen_for_voice(self, websocket: ClientConnection, path: str = ""):
-        logger.info(f"[Voice input]: Client connected {websocket.remote_address}")
-        self.voice_clients.add(websocket)
+    async def send_back_audio(self):
+        if self.only_one_audio_event.is_set():
+            return  # 不能同时存在两个ACCEPT_AUDIO, 得到一个之前必须把这个消耗掉
+        self.only_one_audio_event.set()
+        await self.text_first_event.wait()  # 得等文本发完
+        # logger.debug("recv ACCEPT_AUDIO")
+        unique_id, audio = await self.tts_audio_queue.get()
+        await self.send_response(AnyaData.Type.AUDIO, audio, unique_id)
+        # logger.debug("send_back_audio")
+        self.only_one_audio_event.clear()
+
+    async def handle_client(self, websocket: ClientConnection, path: str = ""):
+        logger.info(f"[Client connected]: {websocket.remote_address}")
+        self.clients.add(websocket)
         try:
-            async for chunk in tqdm(self._data_wrapper(websocket), desc="Audio chunk"):
-                if chunk == b"<|END|>":
-                    raise Exception("Gracefully closed")
-                for audio_bytes in self.vad.detect_speech(chunk):
-                    if self.playback.is_playing and audio_bytes == b"<|PAUSE|>":
-                        self.playback.is_playing = False
-                        if self.current_task:
-                            self.current_task.cancel()
-                            await self.playback.event_queue.put(PlaybackEvent.PAUSE)
-                    elif not self.playback.is_playing and audio_bytes == b"<|RESUME|>":
-                        self.playback.is_playing = True
-                        await self.playback.event_queue.put(PlaybackEvent.RESUME)
-                    elif self.playback.is_playing and len(audio_bytes) > 1024:
-                        voice_input = await self.asr.recognize_speech(audio_bytes)
-                        logger.info(f"[Voice input]: {voice_input}")
-                        await self.voice_input_queue.put(voice_input)
+            async for raw_data in tqdm(
+                self._data_wrapper(websocket), desc="Incoming Data"
+            ):
+                data_obj: dict = ormsgpack.unpackb(raw_data)
+                data = AnyaData(**data_obj)
+                # 输入文本
+                if data.dtype == AnyaData.Type.TEXT:
+                    text = data.content.strip()
+                    if text:
+                        logger.info(f"[Text input]: {text}")
+                        await self.text_input_queue.put(
+                            (self.accepted_identifier, text)
+                        )
+                # 输入声音
+                elif data.dtype == AnyaData.Type.AUDIO:
+                    chunk = data.content
+
+                    for audio_bytes in self.vad.detect_speech(chunk):
+                        if audio_bytes == b"<|PAUSE|>":
+                            self.cancel_event.set()
+                        elif audio_bytes == b"<|RESUME|>":
+                            pass
+                        elif len(audio_bytes) > 1024:
+                            voice_input = await self.asr.recognize_speech(audio_bytes)
+                            logger.info(f"[Voice input]: {voice_input}")
+                            await self.voice_input_queue.put(
+                                (self.accepted_identifier, voice_input)
+                            )
+                # 触发事件
+                elif data.dtype == AnyaData.Type.EVENT:
+                    event = data.content
+                    match event:
+                        case AnyaData.Event.ACCEPT_TEXT.value:
+                            if self.accepted_identifier != data.identifier:
+                                # 不相等说明要么是打断，要么是新文本，得保证传回合成文本先于传回合成的音频
+                                self.accepted_identifier = (
+                                    data.identifier
+                                )  # 设置允许的uuid
+                                self.text_first_event.clear()  # 取消事件标志，让 send_back_audio 等待
+                                logger.debug(
+                                    "UPDATED accepted_identifier: "
+                                    + str(self.accepted_identifier)
+                                )
+                            asyncio.create_task(self.send_back_text())
+                        case AnyaData.Event.ACCEPT_AUDIO.value:
+                            asyncio.create_task(self.send_back_audio())
+                        case AnyaData.Event.CANCEL.value:
+                            self.cancel_event.set()  # 取消事件
+                        case _:
+                            logger.warning("No such AnyaData.Event")
+                # handle others
+                else:
+                    raise NotImplementedError
         except Exception as e:
             logger.warning(
-                f"Voice connection closed: {websocket.remote_address},\n caused by: {e}"
+                f"Client connection closed: {websocket.remote_address},\
+                caused by: {e}"
             )
         finally:
-            self.voice_clients.discard(websocket)
+            self.clients.discard(websocket)
 
     async def process_input(self):
         while True:
             if not self.text_input_queue.empty():
-                user_input = await self.text_input_queue.get()
-                await self.handle_input(user_input)
+                unique_id, user_input = await self.text_input_queue.get()
+                await self.handle_input(unique_id, user_input)
+                logger.info("[Text input]: Complete.")
 
             elif not self.voice_input_queue.empty():
-                user_input = await self.voice_input_queue.get()
-                await self.handle_input(user_input, is_voice=True)
+                unique_id, user_input = await self.voice_input_queue.get()
+                await self.handle_input(unique_id, user_input, is_voice=True)
+                logger.info("[Voice input]: Complete.")
 
             await asyncio.sleep(0.1)
 
-    async def handle_input(self, user_input: str, is_voice: bool = False):
+    async def handle_input(
+        self, unique_id: UUID, user_input: str, is_voice: bool = False
+    ):
         maybe_command = user_input.strip()
 
         if maybe_command.startswith("/"):
             await self.handle_command(maybe_command, is_voice)
             return
 
-        await self.recreate_task(user_input, is_voice)
+        prompt = maybe_command
+        await self.llm_prompt_queue.put((unique_id, prompt))
 
     async def handle_command(self, command: str, is_voice: bool):
         match command:
@@ -122,153 +171,153 @@ class Chatbot:
             case "/help":
                 print("/clear /history /help /interrupt /pause /resume")
             case "/interrupt":
-                await self.recreate_task(PlaybackEvent.PAUSE, is_voice=is_voice)
-            case "/pause":
-                await self.playback.event_queue.put(PlaybackEvent.PAUSE)
-            case "/resume":
-                await self.playback.event_queue.put(PlaybackEvent.RESUME)
+                print("interrupt")
             case _:
                 print("Unknown command, see /help for more info.")
 
-    async def recreate_task(self, user_input: str, is_voice: bool = False):
-        if self.current_task:
-            self.last_task_id = self.current_task.get_name()
-            self.current_task.cancel()
-            await self.playback.event_queue.put(PlaybackEvent.PAUSE)
-            await self.playback.event_queue.put(PlaybackEvent.RESUME)
-            while not self.tts_text_queue.empty():
-                self.tts_text_queue.get_nowait()
-            while not self.tts_audio_queue.empty():
-                self.tts_audio_queue.get_nowait()
-            while not self.subtitle_text_queue.empty():
-                self.subtitle_text_queue.get_nowait()
-        if user_input == PlaybackEvent.PAUSE:
-            return
-        task_func = self.process_voice if is_voice else self.process_text
-        self.current_task = asyncio.create_task(task_func(user_input))
+    async def clean_queued_data(self):
+        logger.warning("clean_queued_data")
+        while not self.tts_text_queue.empty():
+            await self.tts_text_queue.get()
+        while not self.temp_text_queue.empty():
+            await self.temp_text_queue.get()
+        while not self.tts_audio_queue.empty():
+            await self.tts_audio_queue.get()
 
-    async def process_text(self, input_text: str):
-        await asyncio.gather(self.respond(input_text), self.text2audio(), self.speak())
-        logger.info("[Text input]: Complete.")
-
-    async def process_voice(self, input_text: str):
-        await asyncio.gather(self.respond(input_text), self.text2audio(), self.speak())
-        logger.info("[Voice output]: Complete.")
-
-    async def respond(self, input_text: str):
-        try:
-            async for text in self.llm.generate_response(input_text):
-                if (
-                    self.last_task_id != self.current_task.get_name()
-                    and self.last_text == text
-                ):
-                    logger.warning(
-                        f"{self.last_task_id} != {self.current_task.get_name()}"
-                    )
-                    self.last_text = "<?>"
-                    continue
-                self.memory.store("assistant", text, delta=True)
-                self.last_text = text
-                await self.tts_text_queue.put(text)
-                await self.subtitle_text_queue.put(text)
-        except asyncio.CancelledError:
-            logger.warning("Cancelled response")
-            return
-        logger.debug("**** respond **** Done")
-        await self.tts_text_queue.put(None)
-        await self.subtitle_text_queue.put("")  # clear
-
-    async def text2audio(self):
-        await self.tts_audio_queue.put(b"<|BOS|>")
+    async def wait_cancel_task(self):
         while True:
-            text_chunk = await self.tts_text_queue.get()
+            await self.cancel_event.wait()
+            self.continue_event.clear()  # 不允许继续
+            # 尝试优雅退出，不用cancel
+            await asyncio.sleep(0.2)  # 交还控制权，等该取消的任务退出来
+            await self.clean_queued_data()  # 异步清理
+            await self.send_response(AnyaData.Type.TEXT, "", self.accepted_identifier)
+            await self.send_response(AnyaData.Type.AUDIO, b"", self.accepted_identifier)
+            self.cancel_event.clear()  # 恢复等下一次取消
+            self.continue_event.set()  # 允许继续
+
+    async def respond_with_text(self):
+        while True:
+            unique_id, prompt = await self.llm_prompt_queue.get()
+            print(unique_id, prompt)
+            await self.continue_event.wait()  # 能否继续？
+
+            # 创建一个队列来存储生成的文本
+            done_event = asyncio.Event()
+
+            # 定义生成文本的任务
+            async def generate_text():
+                try:
+                    async for text in self.llm.generate_response(prompt):
+                        if self.cancel_event.is_set():
+                            break
+                        # 获取生成的文本
+                        self.memory.store("assistant", text, delta=True)
+                        await self.tts_text_queue.put((unique_id, text))
+                        await self.temp_text_queue.put((unique_id, text))
+
+                except asyncio.CancelledError:
+                    logger.warning("Text generation cancelled.")
+                finally:
+                    done_event.set()
+                    await self.tts_text_queue.put((unique_id, ""))
+
+            # 并行执行生成文本和检查取消事件
+            gen_task = asyncio.create_task(generate_text())
+
+            # 定义检查取消事件的任务
+            async def check_cancel_event():
+                while not self.cancel_event.is_set() and not done_event.is_set():
+                    await asyncio.sleep(0.05)  # 定期检查取消事件
+                if self.cancel_event.is_set():
+                    gen_task.cancel()
+
+            check_task = asyncio.create_task(check_cancel_event())
+
+            # 等待生成任务和取消检查任务完成
+            await asyncio.gather(gen_task, check_task)
+        pass
+
+    async def respond_with_audio(self):
+        while True:
+            await self.continue_event.wait()  # 检查是否能继续
+
+            unique_id, text_chunk = await self.temp_text_queue.get()
             if text_chunk is None:
-                break
+                continue
 
-            async for audio_chunk in self.tts.synthesize(text_chunk):
-                await self.tts_audio_queue.put(audio_chunk)
-            await self.tts_audio_queue.put(b"")  # end playback
-            await self.tts_audio_queue.put(b"<|EOS|>")
-        logger.debug("**** text2audio **** Done")
-        await self.tts_audio_queue.put(None)
+            done_event = asyncio.Event()  # 创建一个事件，用于标记音频生成的完成
 
-    async def speak(self):
-        first_sentence = True
+            # 定义生成音频的任务
+            async def generate_audio():
+                try:
+                    async for audio_chunk in self.tts.synthesize(text_chunk):
+                        if self.cancel_event.is_set():
+                            break
+                        await self.tts_audio_queue.put((unique_id, audio_chunk))
+                except asyncio.CancelledError:
+                    logger.warning("Audio generation cancelled.")
+                finally:
+                    done_event.set()  # 确保任务完成时标记
+                    await self.tts_audio_queue.put(
+                        (unique_id, b"")
+                    )  # 确保音频停止后输出空音频
 
-        async def send_text():
-            # 取发送队列
-            subtitle_text = await self.subtitle_text_queue.get()
-            await self.send_text_response(subtitle_text)
+            gen_task = asyncio.create_task(generate_audio())
 
-        while True:
-            audio_chunk = await self.tts_audio_queue.get()
-            if audio_chunk is None:
-                break
+            # 定义检查取消事件的任务
+            async def check_cancel_event():
+                while not self.cancel_event.is_set() and not done_event.is_set():
+                    await asyncio.sleep(0.05)  # 定期检查取消事件
+                if self.cancel_event.is_set():
+                    gen_task.cancel()
 
-            elif audio_chunk == b"<|BOS|>":
-                # print(audio_chunk, end=' ')
-                if first_sentence:
-                    first_sentence = False
-                    await send_text()
-                    await self.send_audio_response(b"<|START|>")
+            # 并行执行生成音频和检查取消事件
+            check_task = asyncio.create_task(check_cancel_event())
 
-            elif audio_chunk == b"<|EOS|>":
-                # 等这一句播放完
-                # print(audio_chunk)
-                await self.playback.play_complete.wait()
-                if not first_sentence:
-                    await send_text()
-                self.playback.play_complete.clear()
+            # 等待生成任务和取消检查任务完成
+            await asyncio.gather(gen_task, check_task)
+        pass
 
-            elif self.playback_assistant and self.playback.is_playing:
-                # print(f"<audio: {len(audio_chunk)} bytes>", end=' ')
-                self.playback.play_audio(audio_chunk)
-                await self.send_audio_response(audio_chunk)
-
-        await self.send_audio_response(b"<|END|>")
-        logger.debug("**** speak **** Done")
-
-    async def send_text_response(self, text: str):
-        for websocket in self.text_clients:
+    async def send_response(
+        self, dtype: AnyaData.Type, raw_data: str | bytes, identifier: UUID
+    ):
+        data = AnyaData(
+            dtype=dtype,
+            content=raw_data,
+            identifier=identifier,
+            timestamp=datetime.now(),
+        )
+        packed_data = ormsgpack.packb(data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC)
+        for websocket in self.clients:
             try:
-                await asyncio.wait_for(websocket.send(text), timeout=self.timeout)
+                await asyncio.wait_for(
+                    websocket.send(packed_data), timeout=self.timeout
+                )
             except asyncio.exceptions.TimeoutError:
-                logger.warning(f"[Text send] Timeout for {self.timeout} secs, ignored")
-            except websockets.exceptions.ConnectionClosed:
-                self.text_clients.discard(websocket)
-
-    async def send_audio_response(self, audio_data: bytes):
-        for websocket in self.voice_clients:
-            try:
-                await asyncio.wait_for(websocket.send(audio_data), timeout=self.timeout)
-            except asyncio.exceptions.TimeoutError:
-                logger.warning(f"[Audio send] Timeout for {self.timeout} secs, ignored")
-            except websockets.exceptions.ConnectionClosed:
-                self.voice_clients.discard(websocket)
+                logger.warning(
+                    f"[Server send to Client] Timeout for {self.timeout} secs, ignored"
+                )
+            except Exception as e:
+                logger.warning(f"[Client] lost connection due to: {e}")
 
     async def chat(
         self,
-        text_ws_host: str,
-        text_ws_port: int,
-        voice_ws_host: str,
-        voice_ws_port: int,
+        server_ws_host: str,
+        server_ws_port: int,
     ):
         logger.info("初始化...完成。")
-        logger.info(f"文本端: ws://{text_ws_host}:{text_ws_port}")
-        logger.info(f"语音端: ws://{voice_ws_host}:{voice_ws_port}")
-        self.text_websocket = websockets.serve(
-            self.listen_for_text,
-            text_ws_host,
-            text_ws_port,
-        )
-        self.voice_websocket = websockets.serve(
-            self.listen_for_voice,
-            voice_ws_host,
-            voice_ws_port,
+        logger.info(f"服务端: ws://{server_ws_host}:{server_ws_port}")
+
+        self.server_websocket = websockets.serve(
+            self.handle_client,
+            server_ws_host,
+            server_ws_port,
         )
         await asyncio.gather(
-            self.text_websocket,
-            self.voice_websocket,
+            self.server_websocket,
             self.process_input(),
-            self.playback.start_playback(),
+            self.wait_cancel_task(),
+            self.respond_with_text(),
+            self.respond_with_audio(),
         )

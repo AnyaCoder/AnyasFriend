@@ -57,10 +57,8 @@ class ChatbotConfig(BaseModel):
 
 
 class BackendConfig(BaseModel):
-    voice_ws_host: str = "localhost"
-    voice_ws_port: int = 8765
-    text_ws_host: str = "localhost"
-    text_ws_port: int = 8766
+    server_ws_host: str = "localhost"
+    server_ws_port: int = 8765
 
 
 class Config(BaseModel):

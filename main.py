@@ -12,10 +12,8 @@ async def main(config: Config):
     chatbot = ChatbotFactory.create_chatbot(config=config.chatbot)
 
     await chatbot.chat(
-        config.backend.text_ws_host,
-        config.backend.text_ws_port,
-        config.backend.voice_ws_host,
-        config.backend.voice_ws_port,
+        config.backend.server_ws_host,
+        config.backend.server_ws_port,
     )
 
 
