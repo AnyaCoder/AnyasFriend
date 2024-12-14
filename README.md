@@ -21,7 +21,8 @@ pdm sync
 # heavy deps
 pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
-
+# speaker diarization
+pip install pyannote.audio addict datasets fastcluster hdbscan simplejson
 ```
 
 ## Start
