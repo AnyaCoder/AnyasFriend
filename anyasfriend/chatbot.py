@@ -192,9 +192,14 @@ class Chatbot(Core):
                 elif audio_bytes == b"<|RESUME|>":
                     pass  # Implement resume logic if needed
                 elif len(audio_bytes) > 1024:
+                    # detected audio activity (voice)
+                    new_uuid = uuid.uuid4()
+                    await self.send_response(
+                        AnyaData.Type.EVENT, AnyaData.Event.CANCEL, new_uuid
+                    )
                     voice_input = await self.asr.recognize_speech(audio_bytes)
                     logger.info(f"[Voice input]: {voice_input}")
-                    await self.voice_input_queue.put((data.identifier, voice_input))
+                    await self.voice_input_queue.put((new_uuid, voice_input))
         except Exception as e:
             logger.exception(f"Error handling audio input: {e}")
 
