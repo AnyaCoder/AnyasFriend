@@ -1,4 +1,5 @@
 import asyncio
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -36,9 +37,9 @@ class Chatbot(Core):
         self.text_input_queue: asyncio.Queue = asyncio.Queue()
         self.voice_input_queue: asyncio.Queue = asyncio.Queue()
         self.llm_prompt_queue: asyncio.Queue = asyncio.Queue()
-        self.tts_text_queue: asyncio.Queue = asyncio.Queue()
+        self.llm_text_queue: asyncio.Queue = asyncio.Queue()
         self.tool_call_queue: asyncio.Queue = asyncio.Queue()
-        self.temp_text_queue: asyncio.Queue = asyncio.Queue()
+        self.tts_text_queue: asyncio.Queue = asyncio.Queue()
         self.tts_audio_queue: asyncio.Queue = asyncio.Queue()
 
         # Events for managing task synchronization
@@ -109,7 +110,7 @@ class Chatbot(Core):
             return
         self.only_one_text_event.set()
         try:
-            unique_id, text = await self.tts_text_queue.get()
+            unique_id, text = await self.llm_text_queue.get()
             await self.send_response(AnyaData.Type.TEXT, text, unique_id)
             self.text_first_event.set()  # Indicate that text has been sent
             if self.func_calling and not self.tool_call_queue.empty():
@@ -301,9 +302,9 @@ class Chatbot(Core):
         """Clear all data from the queues."""
         logger.warning("Cleaning queued data.")
         queues = [
-            self.tts_text_queue,
+            self.llm_text_queue,
             self.tool_call_queue,
-            self.temp_text_queue,
+            self.tts_text_queue,
             self.tts_audio_queue,
             self.text_input_queue,
             self.voice_input_queue,
@@ -350,8 +351,13 @@ class Chatbot(Core):
                             if text == "." or text == "。":
                                 continue
                             self.memory.store("assistant", text, delta=True)
-                            await self.tts_text_queue.put((unique_id, text))
-                            await self.temp_text_queue.put((unique_id, text))
+                            await self.llm_text_queue.put((unique_id, text))
+                            tts_text = text  # no need copy()
+                            # clear not necessary brankets
+                            tts_text = re.sub(r"\(.*?\)", "", tts_text)
+                            tts_text = re.sub(r"（.*?）", "", tts_text)
+                            tts_text = re.sub(r"\[.*?\]", "", tts_text)
+                            await self.tts_text_queue.put((unique_id, tts_text))
 
                             # If we have pre-defined tools
                             if self.func_calling:
@@ -381,7 +387,7 @@ class Chatbot(Core):
                         logger.exception(f"Error during text generation: {e}")
                     finally:
                         done_event.set()
-                        await self.tts_text_queue.put((unique_id, ""))
+                        await self.llm_text_queue.put((unique_id, ""))
 
                 gen_task = asyncio.create_task(generate_text())
 
@@ -403,7 +409,7 @@ class Chatbot(Core):
         while True:
             try:
                 await self.continue_event.wait()
-                unique_id, text_chunk = await self.temp_text_queue.get()
+                unique_id, text_chunk = await self.tts_text_queue.get()
 
                 if not text_chunk:
                     continue
