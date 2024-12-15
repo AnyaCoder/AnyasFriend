@@ -11,6 +11,7 @@ from pydantic import BaseModel
 class LLMBaseConfig(BaseModel):
     api_key: str = "YOUR_API_KEY"
     base_url: str = "http://localhost:11434"
+    func_calling: bool = True
 
 
 class AnyLLMConfig(BaseModel):
@@ -23,7 +24,6 @@ class LLM(ABC):
 
     def __init__(self, config: AnyLLMConfig):
         self.config = config
-        self.stream_processor = TextStreamProcessor()
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(30.0, connect=10.0, read=10.0, write=10.0),
             proxies={
@@ -36,10 +36,19 @@ class LLM(ABC):
         )
 
     @abstractmethod
-    async def generate_response(self, prompt: str) -> AsyncGenerator[str, Any]:
+    async def generate_response(
+        self, prompt: str, tool_choice: str
+    ) -> AsyncGenerator[str, Any]:
         """
         基于输入的提示生成模型回复。
         :param prompt: 输入的提示文本
+        :param tool_choice:
+            控制模型调用 tool 的行为。
+            `none` 意味着模型不会调用任何 tool，而是生成一条消息。
+            `auto` 意味着模型可以选择生成一条消息或调用一个或多个 tool。
+            `required` 意味着模型必须调用一个或多个 tool。
+            通过 {"type": "function", "function": {"name": "my_function"}} 指定特定 tool，会强制模型调用该 tool。
+            当没有 tool 时，默认值为 none。如果有 tool 存在，默认值为 auto。
         :yield: 生成的回复文本
         """
         pass
@@ -70,16 +79,27 @@ class LLM(ABC):
             json_data = json.loads(data.decode("utf-8"))
             yield json_data
 
+    def parse_function_call(self, text: str):
+        # 正则表达式提取函数名和参数部分
+        match = re.match(r"(\w+)\{(.*)\}", text.strip())
+
+        if match:
+            func_name = match.group(1)  # 获取函数名
+            param_str = match.group(2)  # 获取参数部分（JSON格式）
+
+            params = json.loads("{" + param_str + "}")
+
+            return func_name, params
+        else:
+            raise ValueError("输入字符串格式错误")
+
 
 class TextStreamProcessor:
+    sentence_endings = re.compile(r"[。！？；：:.!?;~]")  # 句子结束符
+    number_with_dot = re.compile(r".*\d+\..*$")  # 匹配以数字+句点结尾的部分
+
     def __init__(self):
         self.buffer: str = ""  # 用于存储未完成的句子
-        self.sentence_endings = re.compile(
-            r"[。！？；：:.!?;~]"
-        )  # 句子结束符：句号、问号、感叹号、冒号，娇喘浪号
-        self.number_with_dot = re.compile(
-            r".*\d+\..*$"
-        )  # 匹配以数字+句点结尾的部分，例如 "3."
 
     async def process(
         self, text_stream: AsyncGenerator[str, Any]

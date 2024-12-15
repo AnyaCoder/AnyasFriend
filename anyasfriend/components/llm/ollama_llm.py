@@ -5,7 +5,13 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel
 
-from anyasfriend.components.interfaces import LLM, AnyLLMConfig, LLMBaseConfig, Memory
+from anyasfriend.components.interfaces import (
+    LLM,
+    AnyLLMConfig,
+    LLMBaseConfig,
+    Memory,
+    TextStreamProcessor,
+)
 
 
 class OllamaLLMRequestConfig(BaseModel):
@@ -34,15 +40,20 @@ class OllamaLLM(LLM):
         else:
             raise ValueError("Not OllamaLLM found!")
 
-    async def generate_response(self, prompt: str):
-
-        self.memory.store(role="user", content=prompt)
+    async def generate_response(self, prompt: str, tool_choice: str = None):
+        if tool_choice is None:
+            self.memory.store(role="user", content=prompt)
+        else:  # TODO
+            raise NotImplementedError
 
         json_request = OllamaLLMRequest(
             **self.config.request.model_dump(), messages=self.memory.messages
         ).model_dump_json(indent=4)
 
         chat_url: str = urljoin(self.config.base.base_url, "api/chat")
+
+        stream_processor = TextStreamProcessor()
+
         async with self.client.stream(
             method="POST",
             url=chat_url,
@@ -75,7 +86,7 @@ class OllamaLLM(LLM):
                             if chunk_json["done"]:
                                 break
 
-                async for chunk_reply in self.stream_processor.process(
+                async for chunk_reply in stream_processor.process(
                     textstream_generator()
                 ):
                     assistant_reply += chunk_reply

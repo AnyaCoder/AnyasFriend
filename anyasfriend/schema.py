@@ -21,6 +21,6 @@ class AnyaData(BaseModel):
         CANCEL = "cancel"
 
     dtype: Type
-    content: str | bytes
+    content: str | bytes | dict
     identifier: UUID  # uuid4
     timestamp: datetime

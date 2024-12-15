@@ -1,12 +1,21 @@
 # anyasfriend/components/llm/deepseek_llm.py
 
 import json
+from typing import Optional
 from urllib.parse import urljoin
 
 from loguru import logger
 from pydantic import BaseModel
 
-from anyasfriend.components.interfaces import LLM, AnyLLMConfig, LLMBaseConfig, Memory
+from anyasfriend.components.interfaces import (
+    LLM,
+    AnyLLMConfig,
+    LLMBaseConfig,
+    Memory,
+    TextStreamProcessor,
+)
+from anyasfriend.components.llm.func_call import Tool as FunctionCallingTool
+from anyasfriend.components.llm.func_call import predefined_tools
 
 
 class DeepSeekLLMRequestConfig(BaseModel):
@@ -24,6 +33,8 @@ class DeepSeekLLMConfig(AnyLLMConfig):
 
 class DeepSeekLLMRequest(DeepSeekLLMRequestConfig):
     messages: list[dict[str, str]]
+    tools: Optional[list[FunctionCallingTool]] = None
+    tool_choice: Optional[str] = None
 
 
 class DeepSeekLLM(LLM):
@@ -36,15 +47,29 @@ class DeepSeekLLM(LLM):
         self.memory = memory
         logger.info(f"DeepSeekLLM initialized!")
 
-    async def generate_response(self, prompt: str):
+    async def generate_response(self, prompt: str, tool_choice: str = None):
 
-        self.memory.store(role="user", content=prompt)
+        if tool_choice is None:
+            self.memory.store(role="user", content=prompt)
 
         json_request = DeepSeekLLMRequest(
-            **self.config.request.model_dump(), messages=self.memory.messages
-        ).model_dump_json(indent=4)
+            **self.config.request.model_dump(),
+            messages=(
+                self.memory.messages
+                if tool_choice is None
+                else [{"role": "assistant", "content": prompt}]
+            ),
+            tools=(
+                None
+                if tool_choice is None
+                else [tool.model_dump() for tool in predefined_tools]
+            ),
+            tool_choice=tool_choice,
+        ).model_dump_json(indent=2, exclude_none=True)
 
         chat_url: str = urljoin(self.config.base.base_url, "chat/completions")
+
+        stream_processor = TextStreamProcessor()
 
         async with self.client.stream(
             method="POST",
@@ -69,23 +94,31 @@ class DeepSeekLLM(LLM):
                 assistant_reply: str = response_json["choices"][0]["message"]["content"]
                 yield assistant_reply
             else:
-                assistant_reply: str = ""
+                # assistant_reply: list = []
 
                 async def textstream_generator():
                     async for chunk in response.aiter_bytes():
                         async for chunk_json in self.process_chunk_to_json(chunk):
-                            chunk_text: str = chunk_json["choices"][0]["delta"][
-                                "content"
-                            ]
-                            yield chunk_text
+                            delta: dict = chunk_json["choices"][0]["delta"]
+                            text_chunk = delta.get("content", None)
+                            if text_chunk is not None:
+                                yield text_chunk
+                            else:
+                                func_chunk: dict = delta["tool_calls"][0]["function"]
+                                tool_name_chunk = func_chunk.get("name", None)
+                                if tool_name_chunk is not None:
+                                    yield tool_name_chunk
+                                tool_args_chunk = func_chunk.get("arguments", None)
+                                if tool_args_chunk is not None:
+                                    yield tool_args_chunk
 
-                async for chunk_reply in self.stream_processor.process(
+                async for chunk_reply in stream_processor.process(
                     textstream_generator()
                 ):
-                    assistant_reply += chunk_reply
+                    # assistant_reply.append(chunk_reply)
                     yield chunk_reply
 
-            # self.memory.store("assistant", assistant_reply) # outside
+            # self.memory.store("assistant", "".join(assistant_reply)) # outside
 
     async def adjust_params(self, params: DeepSeekLLMConfig) -> None:
         self.config = params
@@ -109,8 +142,8 @@ async def llm_main():
         memory=memory,
     )
 
-    prompt = "给我讲一个笑话。"
-    async for chunk_reply in llm.generate_response(prompt):
+    prompt = "怎么办？我明明都会做啊，还是错的"
+    async for chunk_reply in llm.generate_response(prompt, tool_choice="required"):
         logger.info(chunk_reply)
 
 

@@ -1,6 +1,6 @@
 from .asr import ASR
 from .core import Core
-from .llm import LLM, AnyLLMConfig, LLMBaseConfig
+from .llm import LLM, AnyLLMConfig, LLMBaseConfig, TextStreamProcessor
 from .memory import Memory
 from .tts import TTS, AnyTTSConfig, TTSBaseConfig
 from .vad import VAD
@@ -17,4 +17,5 @@ __all__ = [
     "TTSBaseConfig",
     "AnyLLMConfig",
     "LLMBaseConfig",
+    "TextStreamProcessor",
 ]

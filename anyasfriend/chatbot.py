@@ -37,6 +37,7 @@ class Chatbot(Core):
         self.voice_input_queue: asyncio.Queue = asyncio.Queue()
         self.llm_prompt_queue: asyncio.Queue = asyncio.Queue()
         self.tts_text_queue: asyncio.Queue = asyncio.Queue()
+        self.tool_call_queue: asyncio.Queue = asyncio.Queue()
         self.temp_text_queue: asyncio.Queue = asyncio.Queue()
         self.tts_audio_queue: asyncio.Queue = asyncio.Queue()
 
@@ -58,13 +59,16 @@ class Chatbot(Core):
         # Timeout for sending responses
         self.timeout: float = 2.0
 
+        # Function calling
+        self.func_calling = self.llm.config.base.func_calling
+
     async def _data_wrapper(self, websocket: ClientConnection):
         """Asynchronous generator to yield data from the websocket."""
         async for data in websocket:
             yield data
 
     async def send_response(
-        self, dtype: AnyaData.Type, raw_data: str | bytes, identifier: UUID
+        self, dtype: AnyaData.Type, raw_data: str | bytes | dict, identifier: UUID
     ):
         """
         Send a response to all connected clients.
@@ -108,6 +112,10 @@ class Chatbot(Core):
             unique_id, text = await self.tts_text_queue.get()
             await self.send_response(AnyaData.Type.TEXT, text, unique_id)
             self.text_first_event.set()  # Indicate that text has been sent
+            if self.func_calling and not self.tool_call_queue.empty():
+                unique_id, tool_call = await self.tool_call_queue.get()
+                await self.send_response(AnyaData.Type.EVENT, tool_call, unique_id)
+
         except Exception as e:
             logger.exception(f"Error in send_back_text: {e}")
         finally:
@@ -294,6 +302,7 @@ class Chatbot(Core):
         logger.warning("Cleaning queued data.")
         queues = [
             self.tts_text_queue,
+            self.tool_call_queue,
             self.temp_text_queue,
             self.tts_audio_queue,
             self.text_input_queue,
@@ -338,9 +347,34 @@ class Chatbot(Core):
                         async for text in self.llm.generate_response(prompt):
                             if self.cancel_event.is_set():
                                 break
+                            if text == "." or text == "。":
+                                continue
                             self.memory.store("assistant", text, delta=True)
                             await self.tts_text_queue.put((unique_id, text))
                             await self.temp_text_queue.put((unique_id, text))
+
+                            # If we have pre-defined tools
+                            if self.func_calling:
+                                tool_call_str = ""
+                                async for tool_call_text in self.llm.generate_response(
+                                    text, tool_choice="required"
+                                ):
+                                    if self.cancel_event.is_set():
+                                        break
+                                    tool_call_str += tool_call_text
+                                if tool_call_str.startswith(
+                                    "set"
+                                ):  # tools_list: [set_emotion, ..]
+                                    func_name, params = self.llm.parse_function_call(
+                                        tool_call_str
+                                    )
+                                    tool_call = dict(func_name=func_name, params=params)
+                                    # logger.debug("Tool: " + tool_call_text)
+                                    await self.tool_call_queue.put(
+                                        (unique_id, tool_call)
+                                    )
+                                del tool_call_str
+
                     except asyncio.CancelledError:
                         logger.warning("Text generation cancelled.")
                     except Exception as e:

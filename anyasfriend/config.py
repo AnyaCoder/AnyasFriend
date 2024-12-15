@@ -31,6 +31,7 @@ class LLMConfig(BaseModel):
     api_key: Optional[str] = "LLM_API_KEY"
     base_url: Optional[str] = "http://localhost:11434"
     provider: Optional[str] = None
+    func_calling: bool = True
 
 
 class ASRConfig(BaseModel):
