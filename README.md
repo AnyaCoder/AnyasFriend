@@ -1,3 +1,13 @@
+<div align="center">
+<h1>Fish Speech</h1>
+</div>
+
+<div align="center">
+    <a target="_blank" href="https://hub.docker.com/r/anyacoder/anyasfriend">
+        <img alt="Docker" src="https://img.shields.io/docker/pulls/anyacoder/anyasfriend?style=flat-square&logo=docker"/>
+    </a>
+</div>
+
 ## Introduction
 
 **AnyasFriend** is an intelligent conversational AI framework that integrates voice recognition, speech synthesis, natural language processing, and voice activity detection into a unified system. Designed to be versatile and user-friendly, it adapts to a wide range of conversational needs.
