@@ -44,5 +44,6 @@ RUN python -m anyasfriend.components.asr.fun_asr
 # Set TEMP environment variable
 ENV TEMP=/tmp
 
+RUN mv funasr /tmp
 # Run the main application, assuming it starts the WebSocket server
 CMD ["python", "main.py"]
