@@ -39,9 +39,7 @@ RUN --mount=type=cache,target=/root/.cache,sharing=locked \
 EXPOSE 8765
 
 # Download ASR model
-COPY funasr /tmp/funasr
-
-RUN rm -rf funasr
+RUN python -m anyasfriend.components.asr.fun_asr
 
 # Set TEMP environment variable
 ENV TEMP=/tmp
