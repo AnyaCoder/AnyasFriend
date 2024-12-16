@@ -2,7 +2,7 @@ import asyncio
 import re
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Set
 from uuid import UUID
 
@@ -83,7 +83,7 @@ class Chatbot(Core):
             dtype=dtype,
             content=raw_data,
             identifier=identifier,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(timezone.utc),
         )
         packed_data = ormsgpack.packb(data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC)
         for websocket in self.clients.copy():

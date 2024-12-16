@@ -4,3 +4,5 @@ funasr==1.1.5
 silero-vad
 pdm
 pyaudio==0.2.14
+edge_tts
+pydub

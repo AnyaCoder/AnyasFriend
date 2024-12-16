@@ -25,6 +25,9 @@ build-backend = "setuptools.build_meta"
 [tool.pdm]
 distribution = true
 
+[tool.setuptools]
+packages=["anyasfriend"]
+
 [tool.pdm.dev-dependencies]
 dev = [
     "black>=23.3.0",

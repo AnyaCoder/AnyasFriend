@@ -1,8 +1,6 @@
 backend:
-  text_ws_host: localhost
-  text_ws_port: 8766
-  voice_ws_host: localhost
-  voice_ws_port: 8765
+  server_ws_host: 0.0.0.0
+  server_ws_port: 8765
 chatbot:
   asr:
     # local funasr or whisper
@@ -27,6 +25,7 @@ chatbot:
     version: in-memory
   tts:
     api_key: YOUR_API_KEY
+    # docker (inside): http://host.docker.internal:8080
     # fish-speech: http://localhost:8080, https://api.fish.audio
     base_url: http://localhost:8080
     playback_assistant: true

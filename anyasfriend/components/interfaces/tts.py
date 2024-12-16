@@ -29,9 +29,8 @@ class TTS(ABC):
             keepalive_expiry=None,
         ),
         proxies={
-            "http://": "http://127.0.0.1:7890",
-            "https://": "http://127.0.0.1:7890",
             # no proxy for local
+            "http://host.docker.internal": None,
             "http://127.0.0.1": None,
             "https://127.0.0.1": None,
             "http://localhost": None,

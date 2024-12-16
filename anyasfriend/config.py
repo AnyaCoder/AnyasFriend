@@ -12,12 +12,8 @@ class TTSConfig(BaseModel):
     base_url: Optional[str] = "http://localhost:8080"
     playback_user: bool = False
     playback_assistant: bool = True
-    reference_audios: list = [
-        r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_09.wav"
-    ]
-    reference_texts: list = [
-        r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_09.lab"
-    ]
+    reference_audios: list = []
+    reference_texts: list = []
 
 
 class LLMConfig(BaseModel):
@@ -43,6 +39,8 @@ class ASRConfig(BaseModel):
 
 class VADConfig(BaseModel):
     version: Optional[Literal["silero-vad"]] = "silero-vad"
+    prob_threshold: float = 0.3
+    db_threshold: int = 40
 
 
 class MemoryConfig(BaseModel):

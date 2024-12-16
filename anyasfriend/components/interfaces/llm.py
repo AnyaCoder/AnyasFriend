@@ -28,6 +28,7 @@ class LLM(ABC):
             timeout=httpx.Timeout(30.0, connect=10.0, read=10.0, write=10.0),
             proxies={
                 # no proxy for local
+                "http://host.docker.internal": None,
                 "http://127.0.0.1": None,
                 "https://127.0.0.1": None,
                 "http://localhost": None,

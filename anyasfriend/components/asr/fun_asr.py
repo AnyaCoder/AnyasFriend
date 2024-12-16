@@ -10,12 +10,12 @@ from typing import List, Literal
 import numpy as np
 import torch
 import torchaudio
-from funasr import AutoModel
 from funasr.download.download_model_from_hub import name_maps_ms
 from loguru import logger
 from pydantic import BaseModel
 
 from anyasfriend.components.interfaces import ASR
+from funasr import AutoModel
 
 global_lock = asyncio.Lock()
 
@@ -142,12 +142,12 @@ class FunASR(ASR):
 
 
 async def asr_main():
-    audio_file = r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_13.wav"
-    with open(audio_file, "rb") as f:
-        b = f.read()
+    # audio_file = r"D:\PythonProject\原神语音\中文\胡桃\vo_BZLQ001_4_hutao_13.wav"
+    # with open(audio_file, "rb") as f:
+    #     b = f.read()
     asr = FunASR(config=FunASRConfig(sample_rate=44100))
-    res = await asr.recognize_speech(b)
-    logger.info(f"res: {res}")
+    # res = await asr.recognize_speech(b)
+    # logger.info(f"res: {res}")
 
 
 if __name__ == "__main__":

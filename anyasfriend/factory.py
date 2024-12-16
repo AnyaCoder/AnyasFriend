@@ -89,7 +89,12 @@ class ChatbotFactory:
         # 根据配置选择 VAD 版本和 API 配置
         vad = None
         if config.vad.version == "silero-vad":
-            vad = SileroVAD(config=SileroVADConfig())
+            vad = SileroVAD(
+                config=SileroVADConfig(
+                    prob_threshold=config.vad.prob_threshold,
+                    db_threshold=config.vad.db_threshold,
+                )
+            )
         else:
             raise ValueError(f"Unsupported VAD version: {config.vad.version}")
 
