@@ -1,5 +1,5 @@
 <div align="center">
-<h1>Fish Speech</h1>
+<h1>AnyasFriend</h1>
 </div>
 
 <div align="center">
