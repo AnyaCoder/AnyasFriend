@@ -39,10 +39,10 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            AnyaCoder/AnyasFriend:${{ env.version }}
-            AnyaCoder/AnyasFriend:latest
+            anyacoder/anyasfriend:${{ env.version }}
+            anyacoder/anyasfriend:latest
           outputs: type=image,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
-          cache-from: type=registry,ref=AnyaCoder/AnyasFriend:latest
+          cache-from: type=registry,ref=anyacoder/anyasfriend:latest
           cache-to: type=inline
 
       - name: Push README to Dockerhub
@@ -50,4 +50,4 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PAT }}
-          repository: AnyaCoder/AnyasFriend
+          repository: anyacoder/anyasfriend
