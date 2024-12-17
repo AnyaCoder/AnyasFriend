@@ -23,14 +23,13 @@
 ## Installation
 
 ```bash
-conda create -n anya python=3.12
-conda activate anya
+conda create -n anya312 python=3.12
+conda activate anya312
 # core deps
-pip install pdm
-pdm sync
+pip install -e .
 # heavy deps
 pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu124
-pip install -r requirements.txt
+
 # speaker diarization
 pip install pyannote.audio addict datasets fastcluster hdbscan simplejson
 ```
