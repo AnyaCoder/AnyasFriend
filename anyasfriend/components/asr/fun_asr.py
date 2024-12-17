@@ -10,12 +10,12 @@ from typing import List, Literal
 import numpy as np
 import torch
 import torchaudio
+from funasr import AutoModel
 from funasr.download.download_model_from_hub import name_maps_ms
 from loguru import logger
 from pydantic import BaseModel
 
 from anyasfriend.components.interfaces import ASR
-from funasr import AutoModel
 
 global_lock = asyncio.Lock()
 

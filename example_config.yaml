@@ -1,42 +1,57 @@
+# 后端websocket服务配置项，一般是不用动的
 backend:
   server_ws_host: 0.0.0.0
   server_ws_port: 8765
+# 主要配置
 chatbot:
+  # 语音转文字
   asr:
-    # local funasr or whisper
+    # 暂时没做网络版的ASR，不用填key和url
     api_key: YOUR_API_KEY
     base_url: null
     # 第一次使用，需要设置disable_update=False下载模型，后续可设置为true
     disable_update: true
+    # funasr的SenseVoiceSmall非常够用了
     version: funasr
+  # 大语言模型
   llm:
     api_key: YOUR_API_KEY
     # deepseek-chat:  https://api.deepseek.com
-    #   ollama-chat:  http://localhost:11434
-    base_url: http://localhost:11434
-    # 工具调用 （智能设置情绪）
+    #   ollama:  http://localhost:11434
+    base_url: https://api.deepseek.com
+    # 工具调用 （设置情绪, 暂时只支持）
     func_calling: true
     # 不用 ollama 的时候设置 `provider` 为 null, 用 ollama 则设为 ollama
     provider: null
+    # system_prompt，系统提示词。
     system_message: 作为一个ai,你不应该欺骗我，那么接下来，你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，才能让我的体验更好，回答简洁口语化，并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!
     # ollama: qwen2.5:3b
+    # ollama以外的大模型都需要互联网连接
     version: deepseek-chat
+  # 记忆模块（目前比较平凡）
   memory:
     version: in-memory
+  # 文本转语音
   tts:
     api_key: YOUR_API_KEY
-    # docker (inside): http://host.docker.internal:8080
-    # fish-speech: http://localhost:8080, https://api.fish.audio
+    # 若使用docker访问宿主机的8080需配置为: http://host.docker.internal:8080
+    # fish-speech常用url: http://localhost:8080（本地）, https://api.fish.audio（在线）
     base_url: http://localhost:8080
+    # 下面两个弃用了
     playback_assistant: true
     playback_user: false
+    # 一些tts模型需要参考音频来复刻音色，需要把他们的音频和文本分别存储, 如果没有就填 []，就像下面的:
+    # reference_audios: [], 否则有多少音频就得先打一个减号 -，空格，再接路径。
     reference_audios:
       - D:\voices\example_1.wav
       - D:\voices\example_2.wav
     reference_texts:
       - D:\voices\example_1.lab
       - D:\voices\example_2.lab
-    # edge-tts, fish-speech
+    # 目前实现：edge-tts, fish-speech
     version: fish-speech
+  # 语音活动检测
   vad:
+    db_threshold: 40
+    prob_threshold: 0.4
     version: silero-vad

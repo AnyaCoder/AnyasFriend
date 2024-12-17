@@ -32,7 +32,6 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache,sharing=locked \
     set -ex \
     && pip install -e . \
-    && pip install -r requirements.txt \
     && pip cache purge  
 
 # Expose the WebSocket port

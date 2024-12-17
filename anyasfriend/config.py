@@ -95,7 +95,7 @@ def load_config(path: Path | str = default_config_path) -> Config:
         print(e)
         config = init_config()
         logger.warning("Failed to load config file, use default config instead.")
-
+        save_config()
     return config
 
 
@@ -114,4 +114,4 @@ def save_config(path: Path | str = default_config_path) -> None:
 
 # Auto load config
 load_config()
-save_config()
+# save_config()
