@@ -41,6 +41,9 @@ class VADConfig(BaseModel):
     version: Optional[Literal["silero-vad"]] = "silero-vad"
     prob_threshold: float = 0.3
     db_threshold: int = 40
+    required_hits: int = 3  # 3 * (0.032) = 0.1s
+    required_misses: int = 24  # 24 * (0.032) = 0.8s
+    smoothing_window: int = 5
 
 
 class MemoryConfig(BaseModel):

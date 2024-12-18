@@ -198,6 +198,9 @@ class Chatbot(Core):
             for audio_bytes in self.vad.detect_speech(chunk):
                 if audio_bytes == b"<|PAUSE|>":
                     self.cancel_event.set()
+                    await self.send_response(
+                        AnyaData.Type.EVENT, AnyaData.Event.CANCEL, uuid.uuid4()
+                    )
                 elif audio_bytes == b"<|RESUME|>":
                     pass  # Implement resume logic if needed
                 elif len(audio_bytes) > 1024:

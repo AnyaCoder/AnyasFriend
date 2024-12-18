@@ -93,6 +93,9 @@ class ChatbotFactory:
                 config=SileroVADConfig(
                     prob_threshold=config.vad.prob_threshold,
                     db_threshold=config.vad.db_threshold,
+                    required_hits=config.vad.required_hits,
+                    required_misses=config.vad.required_misses,
+                    smoothing_window=config.vad.smoothing_window,
                 )
             )
         else:

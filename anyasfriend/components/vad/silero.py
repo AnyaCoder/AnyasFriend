@@ -1,6 +1,7 @@
 # anyasfriend/components/vad/silero_vad.py
 
 import asyncio
+from collections import deque
 from enum import Enum
 
 import numpy as np
@@ -17,6 +18,9 @@ class SileroVADConfig(BaseModel):
     target_sr: int = 16000
     prob_threshold: float = 0.3
     db_threshold: int = 40
+    required_hits: int = 3  # 3 * (0.032) = 0.1s
+    required_misses: int = 24  # 24 * (0.032) = 0.8s
+    smoothing_window: int = 5
 
 
 class SileroVAD(VAD):
@@ -25,6 +29,7 @@ class SileroVAD(VAD):
         self.model = self.load_vad_model()
         self.state = StateMachine(config)
         self.window_size_samples = 512 if config.target_sr == 16000 else 256
+        # 512 / 16000 = 0.032s
 
     def load_vad_model(self):
         logger.info("Loading silero-VAD model...")
@@ -74,11 +79,21 @@ class StateMachine:
     def __init__(self, config: SileroVADConfig):
         self.state = State.IDLE
         self.prob_threshold = config.prob_threshold
+        self.db_threshold = config.db_threshold
+        self.required_hits = config.required_hits
+        self.required_misses = config.required_misses
+        self.smoothing_window = config.smoothing_window
+
         self.probs = []
         self.dbs = []
         self.bytes = bytearray()
         self.miss_count = 0
-        self.db_threshold = config.db_threshold
+        self.hit_count = 0
+
+        self.prob_window = deque(maxlen=self.smoothing_window)
+        self.db_window = deque(maxlen=self.smoothing_window)
+
+        self.pre_buffer = deque(maxlen=10)
 
     @classmethod
     def calculate_db(cls, audio_data: np.ndarray) -> float:
@@ -95,39 +110,72 @@ class StateMachine:
         self.dbs.clear()
         self.bytes.clear()
 
+    def get_smoothed_values(self, prob, db):
+        self.prob_window.append(prob)
+        self.db_window.append(db)
+        smoothed_prob = np.mean(self.prob_window)
+        smoothed_db = np.mean(self.db_window)
+        return smoothed_prob, smoothed_db
+
     def process(self, prob, float_chunk_np: np.ndarray):
         int_chunk_np = float_chunk_np * 32767
         chunk_bytes = int_chunk_np.astype(np.int16).tobytes()
         db = self.calculate_db(int_chunk_np)
 
-        if self.state == State.IDLE:
-            if prob >= self.prob_threshold and db >= self.db_threshold:
-                self.state = State.ACTIVE
-                self.update(chunk_bytes, prob, db)
-                yield [], [], b"<|PAUSE|>"
-            else:
-                pass
-        elif self.state == State.ACTIVE:
-            self.update(chunk_bytes, prob, db)
-            if prob < self.prob_threshold:
-                self.state = State.INACTIVE
-            else:
-                pass
+        # 获取平滑后的 prob 和 db
+        smoothed_prob, smoothed_db = self.get_smoothed_values(prob, db)
 
-        elif self.state == State.INACTIVE:
-            self.update(chunk_bytes, prob, db)
-            if prob >= self.prob_threshold:
-                self.state = State.ACTIVE
-                self.miss_count = 0
+        if self.state == State.IDLE:
+            self.pre_buffer.append(chunk_bytes)
+            if (
+                smoothed_prob >= self.prob_threshold
+                and smoothed_db >= self.db_threshold
+            ):
+                self.hit_count += 1
+                if self.hit_count >= self.required_hits:
+                    self.state = State.ACTIVE
+                    self.update(chunk_bytes, smoothed_prob, smoothed_db)
+                    self.hit_count = 0
+                    yield [], [], b"<|PAUSE|>"
+            else:
+                self.hit_count = 0  # 重置计数
+
+        elif self.state == State.ACTIVE:
+            self.update(chunk_bytes, smoothed_prob, smoothed_db)
+            if (
+                smoothed_prob >= self.prob_threshold
+                and smoothed_db >= self.db_threshold
+            ):
+                self.miss_count = 0  # 重置miss_count
             else:
                 self.miss_count += 1
-                if self.miss_count >= 24:
+                if self.miss_count >= self.required_misses:
+                    self.state = State.INACTIVE
+                    self.miss_count = 0
+
+        elif self.state == State.INACTIVE:
+            self.update(chunk_bytes, smoothed_prob, smoothed_db)
+            if (
+                smoothed_prob >= self.prob_threshold
+                and smoothed_db >= self.db_threshold
+            ):
+                self.hit_count += 1
+                if self.hit_count >= self.required_hits:
+                    self.state = State.ACTIVE
+                    self.hit_count = 0
+                    self.miss_count = 0
+            else:
+                self.hit_count = 0
+                self.miss_count += 1
+                if self.miss_count >= self.required_misses:
                     self.state = State.IDLE
+                    self.miss_count = 0
                     yield [], [], b"<|RESUME|>"
                     if len(self.probs) > 30:
-                        yield self.probs, self.dbs, self.bytes
+                        pre_bytes = b"".join(self.pre_buffer)
+                        yield self.probs, self.dbs, pre_bytes + self.bytes
                         self.reset_buffers()
-                    self.miss_count = 0
+                    self.pre_buffer.clear()
 
     def get_result(self, input_num, chunk_np):
         yield from self.process(input_num, chunk_np)
