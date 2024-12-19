@@ -1,4 +1,5 @@
 import json
+from typing import Optional
 from urllib.parse import urljoin
 
 import httpx
@@ -12,6 +13,8 @@ from anyasfriend.components.interfaces import (
     Memory,
     TextStreamProcessor,
 )
+from anyasfriend.components.llm.func_call import Tool as FunctionCallingTool
+from anyasfriend.components.llm.func_call import predefined_tools
 
 
 class OllamaLLMRequestConfig(BaseModel):
@@ -25,6 +28,8 @@ class OllamaLLMConfig(AnyLLMConfig):
 
 class OllamaLLMRequest(OllamaLLMRequestConfig):
     messages: list[dict[str, str]]
+    tools: Optional[list[FunctionCallingTool]] = None
+    tool_choice: Optional[str] = None
 
 
 class OllamaLLM(LLM):
@@ -43,13 +48,21 @@ class OllamaLLM(LLM):
     async def generate_response(self, prompt: str, tool_choice: str = None):
         if tool_choice is None:
             self.memory.store(role="user", content=prompt)
-        else:  # TODO
-            raise NotImplementedError
-
-        json_request = OllamaLLMRequest(
-            **self.config.request.model_dump(), messages=self.memory.messages
-        ).model_dump_json(indent=4)
-
+        ollama_request = OllamaLLMRequest(
+            model=self.config.request.model,
+            stream=False if tool_choice is not None else True,
+            messages=(
+                self.memory.messages
+                if tool_choice is None
+                else [{"role": "user", "content": prompt}]
+            ),
+            tools=(
+                None
+                if tool_choice is None
+                else [tool.model_dump() for tool in predefined_tools]
+            ),
+        )
+        json_request = ollama_request.model_dump_json(indent=2, exclude_none=True)
         chat_url: str = urljoin(self.config.base.base_url, "api/chat")
 
         stream_processor = TextStreamProcessor()
@@ -68,13 +81,25 @@ class OllamaLLM(LLM):
                 raise ValueError(
                     f"Failed to get response, status code: {response.status_code}"
                 )
-            if self.config.request.stream is False:
+            if ollama_request.stream is False:
                 response_text = b"".join(
                     [chunk async for chunk in response.aiter_bytes()]
                 )
                 response_json = json.loads(response_text.decode("utf-8"))
-                assistant_reply: str = response_json["message"]["content"]
-                yield assistant_reply
+                if tool_choice:
+                    delta: dict = response_json["message"]
+                    if delta.get("tool_calls", None) is None:
+                        return
+                    func_chunk: dict = delta["tool_calls"][0]["function"]
+                    tool_name_chunk = func_chunk.get("name", None)
+                    if tool_name_chunk is not None:
+                        yield str(tool_name_chunk)
+                    tool_args_chunk = func_chunk.get("arguments", None)
+                    if tool_args_chunk is not None:
+                        yield str(tool_args_chunk)
+                else:
+                    assistant_reply: str = response_json["message"]["content"]
+                    yield assistant_reply
             else:
                 assistant_reply: str = ""
 

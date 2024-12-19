@@ -360,6 +360,8 @@ class Chatbot(Core):
                             tts_text = re.sub(r"\(.*?\)", "", tts_text)
                             tts_text = re.sub(r"（.*?）", "", tts_text)
                             tts_text = re.sub(r"\[.*?\]", "", tts_text)
+                            if not tts_text:
+                                tts_text = "."
                             await self.tts_text_queue.put((unique_id, tts_text))
 
                             # If we have pre-defined tools

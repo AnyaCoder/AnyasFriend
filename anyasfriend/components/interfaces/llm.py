@@ -87,7 +87,7 @@ class LLM(ABC):
         if match:
             func_name = match.group(1)  # 获取函数名
             param_str = match.group(2)  # 获取参数部分（JSON格式）
-
+            param_str = param_str.replace("'", '"')
             params = json.loads("{" + param_str + "}")
 
             return func_name, params
