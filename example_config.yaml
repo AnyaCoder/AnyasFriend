@@ -54,4 +54,7 @@ chatbot:
   vad:
     db_threshold: 40
     prob_threshold: 0.4
+    required_hits: 3
+    required_misses: 24
+    smoothing_window: 5
     version: silero-vad

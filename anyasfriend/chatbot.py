@@ -60,8 +60,11 @@ class Chatbot(Core):
         # Timeout for sending responses
         self.timeout: float = 2.0
 
-        # Function calling
-        self.func_calling = self.llm.config.base.func_calling
+        # Function calling configuration
+        self.func_calling: bool = self.llm.config.base.func_calling
+
+        # Precompile regex patterns for performance
+        self.bracket_patterns = re.compile(r"[\(\[（【][^()\[\]（）【】]*[\)\]）】]")
 
     async def _data_wrapper(self, websocket: ClientConnection):
         """Asynchronous generator to yield data from the websocket."""
@@ -76,7 +79,7 @@ class Chatbot(Core):
 
         Args:
             dtype (AnyaData.Type): The type of data (TEXT or AUDIO).
-            raw_data (str | bytes): The content to send.
+            raw_data (str | bytes | dict): The content to send.
             identifier (UUID): The unique identifier for the session.
         """
         data = AnyaData(
@@ -85,21 +88,33 @@ class Chatbot(Core):
             identifier=identifier,
             timestamp=datetime.now(timezone.utc),
         )
-        packed_data = ormsgpack.packb(data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC)
+        try:
+            packed_data = ormsgpack.packb(data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC)
+        except Exception as e:
+            logger.exception(f"Failed to pack data: {e}")
+            return
+
+        coros = []
         for websocket in self.clients.copy():
-            try:
-                await asyncio.wait_for(
-                    websocket.send(packed_data), timeout=self.timeout
-                )
-            except asyncio.TimeoutError:
-                logger.warning(
-                    f"[Server send to Client] Timeout after {self.timeout} secs, ignored"
-                )
-            except websockets.exceptions.ConnectionClosed:
-                logger.warning(f"[Client] Connection lost: {websocket.remote_address}")
-                self.clients.discard(websocket)
-            except Exception as e:
-                logger.exception(f"Unexpected error when sending to client: {e}")
+            coro = self._send_to_client(websocket, packed_data)
+            coros.append(coro)
+
+        if coros:
+            await asyncio.gather(*coros, return_exceptions=True)
+
+    async def _send_to_client(self, websocket: ClientConnection, packed_data: bytes):
+        """Helper coroutine to send data to a single client."""
+        try:
+            await asyncio.wait_for(websocket.send(packed_data), timeout=self.timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"[Server send to Client] Timeout after {self.timeout} secs, ignored"
+            )
+        except websockets.exceptions.ConnectionClosed:
+            logger.warning(f"[Client] Connection lost: {websocket.remote_address}")
+            self.clients.discard(websocket)
+        except Exception as e:
+            logger.exception(f"Unexpected error when sending to client: {e}")
 
     async def send_back_text(self):
         """
@@ -113,6 +128,7 @@ class Chatbot(Core):
             unique_id, text = await self.llm_text_queue.get()
             await self.send_response(AnyaData.Type.TEXT, text, unique_id)
             self.text_first_event.set()  # Indicate that text has been sent
+
             if self.func_calling and not self.tool_call_queue.empty():
                 unique_id, tool_call = await self.tool_call_queue.get()
                 await self.send_response(AnyaData.Type.EVENT, tool_call, unique_id)
@@ -197,14 +213,11 @@ class Chatbot(Core):
         try:
             for audio_bytes in self.vad.detect_speech(chunk):
                 if audio_bytes == b"<|PAUSE|>":
-                    self.cancel_event.set()
-                    await self.send_response(
-                        AnyaData.Type.EVENT, AnyaData.Event.CANCEL, uuid.uuid4()
-                    )
+                    await self._handle_pause()
                 elif audio_bytes == b"<|RESUME|>":
-                    pass  # Implement resume logic if needed
+                    await self._handle_resume()
                 elif len(audio_bytes) > 1024:
-                    # detected audio activity (voice)
+                    # Detected audio activity (voice)
                     new_uuid = uuid.uuid4()
                     await self.send_response(
                         AnyaData.Type.EVENT, AnyaData.Event.CANCEL, new_uuid
@@ -215,6 +228,18 @@ class Chatbot(Core):
         except Exception as e:
             logger.exception(f"Error handling audio input: {e}")
 
+    async def _handle_pause(self):
+        """Handle pause event."""
+        self.cancel_event.set()
+        await self.send_response(
+            AnyaData.Type.EVENT, AnyaData.Event.CANCEL, uuid.uuid4()
+        )
+
+    async def _handle_resume(self):
+        """Handle resume event."""
+        self.continue_event.set()
+        logger.info("Resume event received.")
+
     async def handle_event(self, data: AnyaData):
         """Handle events sent by the client."""
         event = data.content
@@ -224,15 +249,22 @@ class Chatbot(Core):
             self.text_first_event.clear()
             logger.debug(f"Updated accepted_identifier: {self.accepted_identifier}")
 
-        match event:
-            case AnyaData.Event.ACCEPT_TEXT.value:
-                asyncio.create_task(self.send_back_text())
-            case AnyaData.Event.ACCEPT_AUDIO.value:
-                asyncio.create_task(self.send_back_audio())
-            case AnyaData.Event.CANCEL.value:
-                self.cancel_event.set()
-            case _:
-                logger.warning("Received unknown AnyaData.Event")
+        event_mapping = {
+            AnyaData.Event.ACCEPT_TEXT.value: self.send_back_text,
+            AnyaData.Event.ACCEPT_AUDIO.value: self.send_back_audio,
+            AnyaData.Event.CANCEL.value: self._handle_cancel_event,
+        }
+
+        handler = event_mapping.get(event, self._handle_unknown_event)
+        asyncio.create_task(handler())
+
+    async def _handle_cancel_event(self):
+        """Handle cancel event."""
+        self.cancel_event.set()
+
+    async def _handle_unknown_event(self):
+        """Handle unknown events."""
+        logger.warning("Received unknown AnyaData.Event")
 
     async def process_input(self):
         """
@@ -282,24 +314,42 @@ class Chatbot(Core):
             command (str): The command string.
             is_voice (bool): Whether the command is from voice input.
         """
-        match command:
-            case "/clear":
-                self.memory.clear()
-                logger.info("Memory cleared.")
-            case "/history":
-                history = self.memory.retrieve_all()
-                logger.info("=" * 10 + " Chat History " + "=" * 10)
-                logger.info(history)
-            case "/help":
-                help_text = "/clear /history /help /interrupt /pause /resume"
-                logger.info(help_text)
-            case "/interrupt":
-                logger.info("Interrupt command received.")
-                self.cancel_event.set()
-            case _:
-                logger.warning(
-                    "Unknown command received. Use /help for available commands."
-                )
+        command_handlers = {
+            "/clear": self._clear_memory,
+            "/history": self._show_history,
+            "/help": self._show_help,
+            "/interrupt": self._interrupt_processing,
+            "/pause": self._handle_pause,
+            "/resume": self._handle_resume,
+        }
+
+        handler = command_handlers.get(command, self._unknown_command)
+        await handler()
+
+    async def _clear_memory(self):
+        """Clear the chatbot memory."""
+        self.memory.clear()
+        logger.info("Memory cleared.")
+
+    async def _show_history(self):
+        """Show the chatbot conversation history."""
+        history = self.memory.retrieve_all()
+        logger.info("=" * 10 + " Chat History " + "=" * 10)
+        logger.info(history)
+
+    async def _show_help(self):
+        """Display available commands."""
+        help_text = "/clear /history /help /interrupt /pause /resume"
+        logger.info(help_text)
+
+    async def _interrupt_processing(self):
+        """Interrupt ongoing processing."""
+        logger.info("Interrupt command received.")
+        self.cancel_event.set()
+
+    async def _unknown_command(self):
+        """Handle unknown commands."""
+        logger.warning("Unknown command received. Use /help for available commands.")
 
     async def clean_queued_data(self):
         """Clear all data from the queues."""
@@ -351,20 +401,18 @@ class Chatbot(Core):
                         async for text in self.llm.generate_response(prompt):
                             if self.cancel_event.is_set():
                                 break
-                            if text == "." or text == "。":
+                            if text in {".", "。"}:
                                 continue
                             self.memory.store("assistant", text, delta=True)
                             await self.llm_text_queue.put((unique_id, text))
-                            tts_text = text  # no need copy()
-                            # clear not necessary brankets
-                            tts_text = re.sub(r"\(.*?\)", "", tts_text)
-                            tts_text = re.sub(r"（.*?）", "", tts_text)
-                            tts_text = re.sub(r"\[.*?\]", "", tts_text)
-                            if not tts_text:
-                                tts_text = "."
+
+                            # Clean text for TTS
+                            tts_text = (
+                                self.bracket_patterns.sub("", text).strip() or "."
+                            )
                             await self.tts_text_queue.put((unique_id, tts_text))
 
-                            # If we have pre-defined tools
+                            # Handle function calling if enabled
                             if self.func_calling:
                                 tool_call_str = ""
                                 async for tool_call_text in self.llm.generate_response(
@@ -373,19 +421,17 @@ class Chatbot(Core):
                                     if self.cancel_event.is_set():
                                         break
                                     tool_call_str += tool_call_text
-                                if tool_call_str.startswith(
-                                    "set"
-                                ):  # tools_list: [set_emotion, ..]
+                                if tool_call_str.startswith("set"):
                                     func_name, params = self.llm.parse_function_call(
                                         tool_call_str
                                     )
-                                    tool_call = dict(func_name=func_name, params=params)
-                                    # logger.debug("Tool: " + tool_call_text)
+                                    tool_call = {
+                                        "func_name": func_name,
+                                        "params": params,
+                                    }
                                     await self.tool_call_queue.put(
                                         (unique_id, tool_call)
                                     )
-                                del tool_call_str
-
                     except asyncio.CancelledError:
                         logger.warning("Text generation cancelled.")
                     except Exception as e:
@@ -465,13 +511,17 @@ class Chatbot(Core):
             port,
         )
 
-        await asyncio.gather(
-            server,
-            self.process_input(),
-            self.wait_cancel_task(),
-            self.respond_with_text(),
-            self.respond_with_audio(),
-        )
+        # Use asyncio.TaskGroup if available (Python 3.11+)
+        try:
+            async with server:
+                await asyncio.gather(
+                    self.process_input(),
+                    self.wait_cancel_task(),
+                    self.respond_with_text(),
+                    self.respond_with_audio(),
+                )
+        except Exception as e:
+            logger.exception(f"Server encountered an error: {e}")
 
     async def chat(
         self,

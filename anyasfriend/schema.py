@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import AnyStr, Dict, List, Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -20,7 +20,11 @@ class AnyaData(BaseModel):
         REJECT_AUDIO = "reject_audio"
         CANCEL = "cancel"
 
+    class Content(BaseModel):
+        messages: List[Dict[str, AnyStr]]
+        who: str
+
     dtype: Type
-    content: str | bytes | dict
+    content: str | bytes | dict | Content
     identifier: UUID  # uuid4
     timestamp: datetime
