@@ -7,6 +7,8 @@ import httpx
 from loguru import logger
 from pydantic import BaseModel
 
+from .memory import Memory
+
 
 class LLMBaseConfig(BaseModel):
     api_key: str = "YOUR_API_KEY"
@@ -38,7 +40,7 @@ class LLM(ABC):
 
     @abstractmethod
     async def generate_response(
-        self, prompt: str, tool_choice: str
+        self, prompt: str, memory: Memory, tool_choice: str
     ) -> AsyncGenerator[str, Any]:
         """
         基于输入的提示生成模型回复。

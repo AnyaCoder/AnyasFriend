@@ -41,21 +41,21 @@ class DeepSeekLLM(LLM):
     def __init__(
         self,
         config: DeepSeekLLMConfig,
-        memory: Memory,
     ):
         super().__init__(config)
-        self.memory = memory
         logger.info(f"DeepSeekLLM initialized!")
 
-    async def generate_response(self, prompt: str, tool_choice: str = None):
+    async def generate_response(
+        self, prompt: str, memory: Memory, tool_choice: str = None
+    ):
 
         if tool_choice is None:
-            self.memory.store(role="user", content=prompt)
+            memory.store(role="user", content=prompt)
 
         json_request = DeepSeekLLMRequest(
             **self.config.request.model_dump(),
             messages=(
-                self.memory.messages
+                memory.messages
                 if tool_choice is None
                 else [{"role": "assistant", "content": prompt}]
             ),
@@ -118,7 +118,7 @@ class DeepSeekLLM(LLM):
                     # assistant_reply.append(chunk_reply)
                     yield chunk_reply
 
-            # self.memory.store("assistant", "".join(assistant_reply)) # outside
+            # memory.store("assistant", "".join(assistant_reply)) # outside
 
     async def adjust_params(self, params: DeepSeekLLMConfig) -> None:
         self.config = params
@@ -139,11 +139,12 @@ async def llm_main():
             ),
             request=DeepSeekLLMRequestConfig(stream=True),
         ),
-        memory=memory,
     )
 
     prompt = "怎么办？我明明都会做啊，还是错的"
-    async for chunk_reply in llm.generate_response(prompt, tool_choice="required"):
+    async for chunk_reply in llm.generate_response(
+        prompt, memory, tool_choice="required"
+    ):
         logger.info(chunk_reply)
 
 

@@ -36,23 +36,23 @@ class OllamaLLM(LLM):
     def __init__(
         self,
         config: OllamaLLMConfig,
-        memory: Memory,
     ):
         super().__init__(config)
-        self.memory = memory
         if self.check_model_status():
             logger.info(f"OllamaLLM initialized! Current model: {config.request.model}")
         else:
             raise ValueError("Not OllamaLLM found!")
 
-    async def generate_response(self, prompt: str, tool_choice: str = None):
+    async def generate_response(
+        self, prompt: str, memory: Memory, tool_choice: str = None
+    ):
         if tool_choice is None:
-            self.memory.store(role="user", content=prompt)
+            memory.store(role="user", content=prompt)
         ollama_request = OllamaLLMRequest(
             model=self.config.request.model,
             stream=False if tool_choice is not None else True,
             messages=(
-                self.memory.messages
+                memory.messages
                 if tool_choice is None
                 else [{"role": "user", "content": prompt}]
             ),
@@ -163,11 +163,10 @@ async def llm_main():
             ),
             request=OllamaLLMRequestConfig(stream=True),
         ),
-        memory=memory,
     )
 
     prompt = "给我讲一个笑话。"
-    async for chunk_reply in llm.generate_response(prompt):
+    async for chunk_reply in llm.generate_response(prompt, memory):
         logger.info(chunk_reply)
 
 
