@@ -2,8 +2,9 @@ import asyncio
 import re
 import sys
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Set
+from typing import Dict, List, Set
 from uuid import UUID
 
 import ormsgpack
@@ -54,6 +55,17 @@ class Chatbot(Core):
         # Set of connected WebSocket clients
         self.clients: Set[ClientConnection] = set()
 
+        # Set of chat history
+        self.chat_history_events_dict: defaultdict[UUID, asyncio.Event] = defaultdict(
+            asyncio.Event
+        )
+        self.chat_history_messages_dict: defaultdict[UUID, List[Dict[str, str]]] = (
+            defaultdict(list)
+        )
+        self.client_playbacks_dict: defaultdict[UUID, List[Dict[str, str]]] = (
+            defaultdict(dict)
+        )
+
         # Unique identifier for the current session
         self.accepted_identifier: UUID = uuid.uuid4()
 
@@ -72,7 +84,10 @@ class Chatbot(Core):
             yield data
 
     async def send_response(
-        self, dtype: AnyaData.Type, raw_data: str | bytes | dict, identifier: UUID
+        self,
+        dtype: AnyaData.Type,
+        raw_data: str | bytes | dict | UUID,
+        identifier: UUID,
     ):
         """
         Send a response to all connected clients.
@@ -205,6 +220,8 @@ class Chatbot(Core):
         text = data.content.strip()
         if text:
             logger.info(f"[Text input]: {text}")
+            new_uuid = data.identifier
+            self.accepted_identifier = new_uuid
             await self.text_input_queue.put((data.identifier, text))
 
     async def handle_audio_input(self, data: AnyaData):
@@ -213,26 +230,37 @@ class Chatbot(Core):
         try:
             for audio_bytes in self.vad.detect_speech(chunk):
                 if audio_bytes == b"<|PAUSE|>":
-                    await self._handle_pause()
+                    await self._handle_cancel_event()
+                    await self.send_response(
+                        AnyaData.Type.EVENT, AnyaData.Event.CANCEL, data.identifier
+                    )
                 elif audio_bytes == b"<|RESUME|>":
                     await self._handle_resume()
                 elif len(audio_bytes) > 1024:
                     # Detected audio activity (voice)
-                    new_uuid = uuid.uuid4()
-                    await self.send_response(
-                        AnyaData.Type.EVENT, AnyaData.Event.CANCEL, new_uuid
-                    )
-                    voice_input = await self.asr.recognize_speech(audio_bytes)
-                    logger.info(f"[Voice input]: {voice_input}")
-                    await self.voice_input_queue.put((new_uuid, voice_input))
+                    await self._handle_new_audio_input(audio_bytes, data.identifier)
         except Exception as e:
             logger.exception(f"Error handling audio input: {e}")
+
+    async def _handle_new_audio_input(self, audio_bytes: bytes, playback_uuid: UUID):
+        if self.asr:
+            new_uuid = uuid.uuid4()
+            voice_input = await self.asr.recognize_speech(audio_bytes)
+            logger.info(f"[Voice input]: {voice_input}")
+            await self.send_response(
+                AnyaData.Type.EVENT,
+                {"new_uuid": new_uuid, "transcription": voice_input},
+                playback_uuid,
+            )
+            self.accepted_identifier = new_uuid
+        else:
+            logger.warning("ASR is not activated! Please restart with ASR restarted!")
 
     async def _handle_pause(self):
         """Handle pause event."""
         self.cancel_event.set()
         await self.send_response(
-            AnyaData.Type.EVENT, AnyaData.Event.CANCEL, uuid.uuid4()
+            AnyaData.Type.EVENT, AnyaData.Event.CANCEL, self.accepted_identifier
         )
 
     async def _handle_resume(self):
@@ -242,21 +270,39 @@ class Chatbot(Core):
 
     async def handle_event(self, data: AnyaData):
         """Handle events sent by the client."""
+
+        # if data.identifier != self.accepted_identifier:
+        #     # Update the accepted identifier and reset events
+        #     self.accepted_identifier = data.identifier
+        #     self.text_first_event.clear()
+        #     logger.debug(f"Updated accepted_identifier: {self.accepted_identifier}")
+
         event = data.content
-        if data.identifier != self.accepted_identifier:
-            # Update the accepted identifier and reset events
-            self.accepted_identifier = data.identifier
-            self.text_first_event.clear()
-            logger.debug(f"Updated accepted_identifier: {self.accepted_identifier}")
+        if isinstance(event, str):
+            event_mapping = {
+                AnyaData.Event.ACCEPT_TEXT.value: self.send_back_text,
+                AnyaData.Event.ACCEPT_AUDIO.value: self.send_back_audio,
+                AnyaData.Event.CANCEL.value: self._handle_cancel_event,
+            }
+            handler = event_mapping.get(event, self._handle_unknown_event)
+            asyncio.create_task(handler())
 
-        event_mapping = {
-            AnyaData.Event.ACCEPT_TEXT.value: self.send_back_text,
-            AnyaData.Event.ACCEPT_AUDIO.value: self.send_back_audio,
-            AnyaData.Event.CANCEL.value: self._handle_cancel_event,
-        }
+        if isinstance(event, dict):
+            if chat_history := event.get("chat_history", None):
+                asyncio.create_task(
+                    self._handle_chat_context_event(
+                        chat_history, self.accepted_identifier
+                    )
+                )
+        pass
 
-        handler = event_mapping.get(event, self._handle_unknown_event)
-        asyncio.create_task(handler())
+    async def _handle_chat_context_event(
+        self, chat_history: List[Dict[str, str]], uuid: UUID
+    ):
+        logger.warning("_handle_chat_context_event")
+        self.chat_history_messages_dict[uuid] = chat_history
+        self.chat_history_events_dict[uuid].set()
+        pass
 
     async def _handle_cancel_event(self):
         """Handle cancel event."""
@@ -391,13 +437,30 @@ class Chatbot(Core):
         while True:
             try:
                 unique_id, prompt = await self.llm_prompt_queue.get()
-                logger.debug(f"Generating response for prompt: {prompt}")
+                logger.warning(f"Generating response for prompt: {prompt}")
+
                 await self.continue_event.wait()
 
                 done_event = asyncio.Event()
 
                 async def generate_text():
                     try:
+                        logger.warning(
+                            f"Generating NEED_CONTEXT for unique_id: {unique_id}"
+                        )
+                        await self.send_response(
+                            AnyaData.Type.EVENT, AnyaData.Event.NEED_CONTEXT, unique_id
+                        )
+                        wait_history_event = self.chat_history_events_dict[unique_id]
+                        logger.warning(f"wait_history_event: {unique_id}")
+                        await wait_history_event.wait()
+                        del wait_history_event
+                        chat_history_messages = self.chat_history_messages_dict[
+                            unique_id
+                        ]
+                        self.memory.messages = chat_history_messages.copy()
+                        del chat_history_messages
+
                         async for text in self.llm.generate_response(prompt):
                             if self.cancel_event.is_set():
                                 break
@@ -437,6 +500,11 @@ class Chatbot(Core):
                     except Exception as e:
                         logger.exception(f"Error during text generation: {e}")
                     finally:
+                        await self.send_response(
+                            AnyaData.Type.EVENT,
+                            AnyaData.ContextEvent(chat_history=self.memory.messages),
+                            unique_id,
+                        )
                         done_event.set()
                         await self.llm_text_queue.put((unique_id, ""))
 

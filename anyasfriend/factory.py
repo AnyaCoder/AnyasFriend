@@ -80,8 +80,9 @@ class ChatbotFactory:
             raise ValueError(f"Unsupported TTS version: {config.tts.version}")
 
         # 根据配置选择 ASR 版本和 API 配置
-        asr = None
-        if config.asr.version == "funasr":
+        if config.asr.version is None:
+            asr = None
+        elif config.asr.version == "funasr":
             asr = FunASR(config=FunASRConfig(disable_update=config.asr.disable_update))
         else:
             raise ValueError(f"Unsupported ASR version: {config.asr.version}")

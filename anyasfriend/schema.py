@@ -19,12 +19,13 @@ class AnyaData(BaseModel):
         ACCEPT_AUDIO = "accept_audio"
         REJECT_AUDIO = "reject_audio"
         CANCEL = "cancel"
+        NEED_CONTEXT = "give_me_chat_history"
 
-    class Content(BaseModel):
-        messages: List[Dict[str, AnyStr]]
-        who: str
+    class ContextEvent(BaseModel):
+        chat_history: List[Dict[str, AnyStr]]
+        who: str = "me"
 
     dtype: Type
-    content: str | bytes | dict | Content
+    content: str | bytes | dict | UUID | ContextEvent
     identifier: UUID  # uuid4
     timestamp: datetime
