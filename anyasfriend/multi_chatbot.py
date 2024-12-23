@@ -9,6 +9,7 @@ from uuid import UUID
 import ormsgpack
 import websockets
 from loguru import logger
+from tqdm.asyncio import tqdm
 from websockets.asyncio.client import ClientConnection
 
 from anyasfriend.components.interfaces import ASR, LLM, TTS, VAD, Memory
@@ -222,7 +223,9 @@ class Chatbot:
         Args:
             session (ClientSession): The client's session.
         """
-        async for raw_data in self._data_wrapper(session.websocket):
+        async for raw_data in tqdm(
+            self._data_wrapper(session.websocket), desc="Incoming Data"
+        ):
             await self.process_raw_data(raw_data, session)
 
     async def process_raw_data(self, raw_data: bytes, session: ClientSession):

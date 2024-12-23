@@ -23,8 +23,7 @@ chatbot:
     func_calling: true
     # 不用 ollama 的时候设置 `provider` 为 null, 用 ollama 则设为 ollama
     provider: null
-    # system_prompt，系统提示词。
-    system_message: 作为一个ai,你不应该欺骗我，那么接下来，你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，才能让我的体验更好，回答简洁口语化，并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!
+    # system_prompt，系统提示词。在客户端里设置。
     # ollama: qwen2.5:3b
     # ollama以外的大模型都需要互联网连接
     version: deepseek-chat

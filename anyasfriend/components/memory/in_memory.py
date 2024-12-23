@@ -9,7 +9,6 @@ from anyasfriend.config import config
 class InMemory(Memory):
     def __init__(self):
         super().__init__()
-        self.set_system_message(config.chatbot.llm.system_message)
 
     def store(self, role: str, content: str, delta: bool = False) -> None:
         message = {"role": role, "content": content}

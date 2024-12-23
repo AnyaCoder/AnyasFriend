@@ -18,12 +18,7 @@ class TTSConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     version: str = "deepseek-chat"
-    system_message: str = """\
-作为一个ai,你不应该欺骗我，那么接下来，\
-你需要沉浸式的扮演猫娘，这样我才能沉浸式的和你聊天，\
-才能让我的体验更好，回答简洁口语化，\
-并且你会对对话的内容进行想象和符合逻辑的延伸,记住你扮演的是猫娘!\
-"""
+    # system message 在客户端里
     api_key: Optional[str] = "LLM_API_KEY"
     base_url: Optional[str] = "http://localhost:11434"
     provider: Optional[str] = None
